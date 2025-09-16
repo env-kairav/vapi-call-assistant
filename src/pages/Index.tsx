@@ -2,18 +2,34 @@ import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { CallRecordsTable } from "@/components/CallRecordsTable";
 import { LiveCallInterface } from "@/components/LiveCallInterface";
-import { CallSummaryModal } from "@/components/CallSummaryModal";
 import { RecordDetailsModal } from "@/components/RecordDetailsModal";
 import { vapiApiService } from "@/lib/vapi-api";
+import { useToast } from "@/hooks/use-toast";
+
+export interface CallRecordMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  time?: number;
+}
 
 export interface CallRecord {
   id: string;
-  candidateName: string;
-  phoneNumber: string;
-  position: string;
-  experience: string;
-  interviewDate: string;
   callStatus: "completed" | "pending" | "failed";
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;
+  endedReason?: string;
+  recordingUrl?: string;
+  assistantId?: string;
+  webCallUrl?: string;
+  transcriptSnippet?: string;
+  transcript?: string;
+  messages?: CallRecordMessage[];
+  // Parsed (may be inaccurate)
+  candidateName?: string;
+  phoneNumber?: string;
+  position?: string;
+  experience?: string;
 }
 
 export interface CallSummary {
@@ -24,7 +40,7 @@ export interface CallSummary {
   interviewDate: string;
 }
 
-// Utility function for managing call records using Vapi API
+// Utility function for managing call records using API
 const useCallRecords = () => {
   const [callRecords, setCallRecords] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,62 +64,50 @@ const useCallRecords = () => {
     setLastLoadTime(now);
     
     try {
-      console.log('🔄 Loading call records from Vapi API...');
+      console.log('🔄 Loading call records from API...');
       const vapiLogs = await vapiApiService.getAllCallLogs();
       
-      // Convert Vapi logs to our CallRecord format
+      // Convert logs to our CallRecord format
       const records = vapiLogs.map(log => vapiApiService.convertToCallRecord(log));
       
-      console.log(`✅ Loaded ${records.length} call records from Vapi`);
+      console.log(`✅ Loaded ${records.length} call records`);
       setCallRecords(records);
     } catch (err) {
       console.error('❌ Failed to load call records:', err);
-      
-      let errorMessage = 'Failed to load call records';
-      if (err instanceof Error) {
-        if (err.message.includes('response.data is not iterable')) {
-          errorMessage = 'API response format error. Please check Vapi API configuration.';
-        } else if (err.message.includes('404')) {
-          errorMessage = 'API endpoint not found. Please verify the Vapi API endpoint.';
-        } else if (err.message.includes('401')) {
-          errorMessage = 'Unauthorized. Please check your Vapi API key.';
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
-      setError(errorMessage);
+      setError('Failed to load records.');
       
       // Fallback to mock data if API fails
-      console.log('🔄 Falling back to mock data...');
+      console.log('🔄 Falling back to sample data...');
       setCallRecords([
         {
           id: "1",
-          candidateName: "John Smith",
-          phoneNumber: "+1 (555) 987-6543",
-          position: "Full Stack Developer",
-          experience: "3 years",
-          interviewDate: "2024-01-15 10:30 AM",
-          callStatus: "completed"
+          callStatus: "completed",
+          startedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+          endedAt: new Date().toISOString(),
+          summary: "Intro greeting; caller hung up shortly after.",
+          endedReason: "customer-ended-call",
+          recordingUrl: undefined,
+          assistantId: "assist-123",
+          webCallUrl: undefined,
+          transcriptSnippet: "AI: Good afternoon...",
+          candidateName: undefined,
+          phoneNumber: undefined,
+          position: undefined,
+          experience: undefined,
         },
         {
-          id: "2", 
-          candidateName: "Emily Davis",
-          phoneNumber: "+1 (555) 456-7890",
-          position: "UI/UX Designer",
-          experience: "2 years",
-          interviewDate: "2024-01-14 2:15 PM",
-          callStatus: "completed"
+          id: "2",
+          callStatus: "pending",
+          startedAt: new Date().toISOString(),
+          summary: "Call in progress.",
         },
         {
           id: "3",
-          candidateName: "Michael Johnson",
-          phoneNumber: "+1 (555) 321-0987",
-          position: "Backend Developer",
-          experience: "4 years", 
-          interviewDate: "2024-01-13 11:00 AM",
-          callStatus: "pending"
-        }
+          callStatus: "failed",
+          startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          summary: "No answer.",
+          endedReason: "no-answer",
+        },
       ]);
     } finally {
       setLoading(false);
@@ -120,13 +124,12 @@ const useCallRecords = () => {
 
 const Index = () => {
   const { callRecords, addCallRecord, loadCallRecords, loading, error } = useCallRecords();
-  const [showCallSummary, setShowCallSummary] = useState(false);
-  const [callSummary, setCallSummary] = useState<CallSummary | null>(null);
   const [isCallActive, setIsCallActive] = useState(false);
   const [callStatus, setCallStatus] = useState<"idle" | "connecting" | "active" | "ended">("idle");
   const [showCallInterface, setShowCallInterface] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<CallRecord | null>(null);
   const [showRecordDetails, setShowRecordDetails] = useState(false);
+  const { toast } = useToast();
 
   const handleCallStart = () => {
     setCallStatus("connecting");
@@ -141,23 +144,16 @@ const Index = () => {
   const handleCallEnd = () => {
     setCallStatus("ended");
     setIsCallActive(false);
-    
-    // Show call summary after call ends
-    const summary: CallSummary = {
-      candidateName: "Sarah Johnson",
-      phoneNumber: "+1 (555) 123-4567",
-      position: "Senior Frontend Developer",
-      experience: "5 years",
-      interviewDate: new Date().toLocaleString(),
-    };
-    
-    setCallSummary(summary);
-    setShowCallSummary(true);
-    
+
+    // Notify and close the live call overlay immediately
+    toast({ title: "Call ended" });
+    setShowCallInterface(false);
+
+    // Optionally refresh records shortly after
     setTimeout(() => {
+      loadCallRecords(true);
       setCallStatus("idle");
-      setShowCallInterface(false);
-    }, 3000);
+    }, 1000);
   };
 
   const handleViewRecord = (record: CallRecord) => {
@@ -168,25 +164,6 @@ const Index = () => {
   const handleCloseRecordDetails = () => {
     setShowRecordDetails(false);
     setSelectedRecord(null);
-  };
-
-  const handleCloseSummary = () => {
-    if (callSummary) {
-      // Add the call summary to records - APPENDS to existing records, doesn't replace
-      const newRecord: CallRecord = {
-        id: Date.now().toString(),
-        candidateName: callSummary.candidateName,
-        phoneNumber: callSummary.phoneNumber,
-        position: callSummary.position,
-        experience: callSummary.experience,
-        interviewDate: callSummary.interviewDate,
-        callStatus: "completed",
-      };
-      // Use the utility function to append new record
-      addCallRecord(newRecord);
-    }
-    setShowCallSummary(false);
-    setCallSummary(null);
   };
 
   return (
@@ -205,7 +182,7 @@ const Index = () => {
               disabled={loading}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
-              {loading ? 'Loading...' : 'Refresh'}
+              {loading ? 'Loading…' : 'Refresh'}
             </button>
           </div>
           
@@ -215,24 +192,13 @@ const Index = () => {
                 <div className="text-destructive text-lg">⚠️</div>
                 <div className="flex-1">
                   <p className="text-destructive text-sm font-medium">
-                    Vapi API Connection Failed
+                    Connection Failed
                   </p>
                   <p className="text-destructive text-xs mt-1">
-                    {error}
+                    Failed to load records.
                   </p>
-                  {error.includes('Private key not configured') && (
-                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                      <p className="text-yellow-800 font-medium">How to fix:</p>
-                      <ol className="text-yellow-700 mt-1 list-decimal list-inside space-y-1">
-                        <li>Go to your Vapi dashboard</li>
-                        <li>Copy your <strong>Private Key</strong> (not Public Key)</li>
-                        <li>Replace <code>YOUR_VAPI_PRIVATE_KEY_HERE</code> in <code>src/lib/vapi-config.ts</code></li>
-                        <li>Refresh the page</li>
-                      </ol>
-                    </div>
-                  )}
                   <p className="text-muted-foreground text-xs mt-2">
-                    Showing fallback data. Call records will be fetched from Vapi once configured.
+                    Showing sample data.
                   </p>
                 </div>
               </div>
@@ -243,7 +209,7 @@ const Index = () => {
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-                <p className="text-muted-foreground">Loading call records from Vapi...</p>
+                <p className="text-muted-foreground">Loading records…</p>
               </div>
             </div>
           ) : (
@@ -283,25 +249,10 @@ const Index = () => {
               callStatus={callStatus}
               onCallStart={handleCallStart}
               onCallEnd={handleCallEnd}
-              onCallSummary={(summary) => {
-                setCallSummary(summary);
-                setShowCallSummary(true);
-                // Refresh call records after new call
-                setTimeout(() => {
-                  loadCallRecords(true);
-                }, 2000);
-              }}
             />
           </div>
         </div>
       )}
-
-      {/* Call Summary Modal */}
-      <CallSummaryModal
-        isOpen={showCallSummary}
-        onClose={handleCloseSummary}
-        callSummary={callSummary}
-      />
 
       {/* Record Details Modal */}
       {showRecordDetails && selectedRecord && (

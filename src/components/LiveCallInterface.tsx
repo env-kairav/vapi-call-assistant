@@ -1,7 +1,7 @@
 import { Phone, PhoneOff, Mic, MicOff, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useVapi } from "@/hooks/useVapi";
 
 interface LiveCallInterfaceProps {
@@ -22,6 +22,8 @@ export const LiveCallInterface = ({
   const [isMuted, setIsMuted] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
+  const [assistantHasSpoken, setAssistantHasSpoken] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   
   // Use Vapi hook
   const {
@@ -40,6 +42,18 @@ export const LiveCallInterface = ({
     sendMessage
   } = useVapi();
 
+  // Track first assistant utterance
+  useEffect(() => {
+    if (!connected) {
+      setAssistantHasSpoken(false);
+      return;
+    }
+    const hasAssistantMessage = messages.some((m) => m.type === 'assistant' && m.content && m.content.trim());
+    if (hasAssistantMessage && !assistantHasSpoken) {
+      setAssistantHasSpoken(true);
+    }
+  }, [connected, messages, assistantHasSpoken]);
+
   // Handle Vapi call events
   useEffect(() => {
     if (connected && !isCallActive) {
@@ -49,10 +63,18 @@ export const LiveCallInterface = ({
     }
   }, [connected, isCallActive, onCallStart, onCallEnd]);
 
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (showMessages && connected) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 0);
+    }
+  }, [messages, showMessages, connected]);
+
   // Handle call summary when call ends
   useEffect(() => {
     if (!connected && isCallActive && onCallSummary) {
-      // Extract candidate information from messages
       const candidateInfo = extractCandidateInfo(messages);
       if (candidateInfo) {
         onCallSummary(candidateInfo);
@@ -62,25 +84,19 @@ export const LiveCallInterface = ({
 
   const extractCandidateInfo = (messages: any[]) => {
     const userMessages = messages.filter(msg => msg.type === 'user');
-    const assistantMessages = messages.filter(msg => msg.type === 'assistant');
-    
-    // Simple extraction logic - in a real app, you'd have more sophisticated parsing
-    const nameMatch = userMessages.find(msg => 
-      msg.content.toLowerCase().includes('name') || 
-      msg.content.match(/^[A-Za-z\s]+$/)
-    );
-    
-    const phoneMatch = userMessages.find(msg => 
-      msg.content.match(/\d{10}/) || 
-      msg.content.match(/\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)
-    );
-    
     const roleMatch = userMessages.find(msg => 
       msg.content.toLowerCase().includes('developer') ||
       msg.content.toLowerCase().includes('engineer') ||
       msg.content.toLowerCase().includes('designer')
     );
-    
+    const nameMatch = userMessages.find(msg => 
+      msg.content.toLowerCase().includes('name') || 
+      msg.content.match(/^[A-Za-z\s]+$/)
+    );
+    const phoneMatch = userMessages.find(msg => 
+      msg.content.match(/\d{10}/) || 
+      msg.content.match(/\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)
+    );
     const experienceMatch = userMessages.find(msg => 
       msg.content.match(/\d+\s*(year|yr)/i)
     );
@@ -100,12 +116,15 @@ export const LiveCallInterface = ({
 
   const getStatusBadge = () => {
     if (connected) {
+      if (!assistantHasSpoken) {
+        return <Badge className="bg-status-pending/20 text-status-pending border-status-pending/30">Initializing…</Badge>;
+      }
       return <Badge className="bg-status-completed/20 text-status-completed border-status-completed/30">Connected</Badge>;
     }
     
     switch (callStatus) {
       case "connecting":
-        return <Badge className="bg-status-pending/20 text-status-pending border-status-pending/30">Connecting...</Badge>;
+        return <Badge className="bg-status-pending/20 text-status-pending border-status-pending/30">Connecting…</Badge>;
       case "active":
         return <Badge className="bg-status-completed/20 text-status-completed border-status-completed/30">Active</Badge>;
       case "ended":
@@ -119,6 +138,9 @@ export const LiveCallInterface = ({
     const baseClasses = "w-40 h-40 rounded-full flex items-center justify-center relative transition-all duration-500";
     
     if (connected) {
+      if (!assistantHasSpoken) {
+        return `${baseClasses} bg-gradient-siri shadow-glow animate-pulse-glow border-4 border-white/10`;
+      }
       return `${baseClasses} bg-gradient-siri shadow-intense animate-pulse-glow border-4 border-white/20`;
     }
     
@@ -146,7 +168,6 @@ export const LiveCallInterface = ({
       {/* Siri-like Animated Circle */}
       <div className="flex justify-center relative">
         <div className={getCircleClasses()}>
-          {/* Pulse rings for active state */}
           {(callStatus === "active" || connected) && (
             <>
               <div className="absolute inset-0 rounded-full border-2 border-call-pulse animate-pulse-ring opacity-75 pointer-events-none"></div>
@@ -166,6 +187,25 @@ export const LiveCallInterface = ({
           </div>
         </div>
       </div>
+
+      {/* Status Information */}
+      {(callStatus === "active" || connected || callStatus === "connecting") && (
+        <div className="text-sm text-muted-foreground space-y-1">
+          {callStatus === "connecting" && (
+            <p className="text-xs">Connecting to assistant…</p>
+          )}
+          {connected && !assistantHasSpoken && (
+            <p className="text-xs">Assistant is initializing, please wait…</p>
+          )}
+          {connected && assistantHasSpoken && (
+            <p>Assistant is listening and ready to help with the interview</p>
+          )}
+          <p className="text-xs">AI will automatically capture candidate details</p>
+          {assistantIsSpeaking && <p className="text-xs text-blue-500">Assistant is speaking…</p>}
+          {userSpeaking && <p className="text-xs text-green-500">User is speaking…</p>}
+          {currentSpeech && <p className="text-xs text-gray-600">"{currentSpeech}"</p>}
+        </div>
+      )}
 
       {/* Call Controls */}
       <div className="flex justify-center items-center space-x-4 relative z-20">
@@ -215,20 +255,9 @@ export const LiveCallInterface = ({
         )}
       </div>
 
-      {/* Status Information */}
-      {(callStatus === "active" || connected) && (
-        <div className="text-sm text-muted-foreground space-y-1">
-          <p>Assistant is listening and ready to help with the interview</p>
-          <p className="text-xs">AI will automatically capture candidate details</p>
-          {assistantIsSpeaking && <p className="text-xs text-blue-500">Assistant is speaking...</p>}
-          {userSpeaking && <p className="text-xs text-green-500">User is speaking...</p>}
-          {currentSpeech && <p className="text-xs text-gray-600">"{currentSpeech}"</p>}
-        </div>
-      )}
-
       {/* Messages Display */}
       {showMessages && connected && (
-        <div className="mt-6 p-4 bg-muted/20 rounded-lg max-h-60 overflow-y-auto">
+        <div className="mt-6 p-4 bg-muted/20 rounded-lg max-h-60 overflow-y-auto text-left">
           <h4 className="text-sm font-medium mb-3">Conversation</h4>
           <div className="space-y-2">
             {messages.filter(msg => msg.type === 'user' || msg.type === 'assistant').map((msg, index) => (
@@ -240,6 +269,7 @@ export const LiveCallInterface = ({
                 <div className="text-xs opacity-70">{msg.time}</div>
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
           
           {/* Text Input */}
@@ -249,7 +279,7 @@ export const LiveCallInterface = ({
               value={customMessage}
               onChange={(e) => setCustomMessage(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 px-2 py-1 text-xs border rounded"
+              className="flex-1 px-2 py-1 text-xs border rounded bg-white text-black placeholder:text-gray-500"
               onKeyPress={(e) => {
                 if (e.key === 'Enter') {
                   sendMessage(customMessage);
