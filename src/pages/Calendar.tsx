@@ -51,6 +51,7 @@ const getWeekStart = (date: Date) => {
 const formatDateYMD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
 const Calendar = () => {
+  // Initialize with today's date by default
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
 
@@ -58,7 +59,6 @@ const Calendar = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [hasNavigatedToEvents, setHasNavigatedToEvents] = useState(false);
   
   // Use ref to track if we've already fetched events to prevent duplicate API calls
   const hasFetchedEvents = useRef(false);
@@ -118,14 +118,9 @@ const Calendar = () => {
         setEvents(deduplicatedEvents);
         console.log("✅ Calendar: Set events state:", deduplicatedEvents.length, "events");
         
-        // Auto-navigate to the first event if we have events and haven't navigated yet
-        if (deduplicatedEvents.length > 0 && !hasNavigatedToEvents) {
-          const firstEvent = deduplicatedEvents[0];
-          const eventDate = new Date(firstEvent.start);
-          console.log("📅 Calendar: Auto-navigating to first event date:", eventDate);
-          setCurrentDate(eventDate);
-          setHasNavigatedToEvents(true);
-        }
+        // Calendar now focuses on today's date by default (no auto-navigation to first event)
+        console.log("📅 Calendar: Focusing on today's date by default");
+        
       } catch (e: any) {
         console.error("❌ Calendar: Failed to load events:", e);
         setError(e?.message || "Failed to load calendar events");
@@ -173,7 +168,7 @@ const Calendar = () => {
       return overlaps;
     });
     
-    console.log("�� Calendar: Visible events:", filtered.length, filtered);
+    console.log("📅 Calendar: Visible events:", filtered.length, filtered);
     return filtered;
   }, [events, weekStart]);
 
