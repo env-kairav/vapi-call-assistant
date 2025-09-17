@@ -192,9 +192,7 @@ export class VapiApiService {
           "Vapi API Error: Server error. Please try again later."
         );
       } else {
-        throw new Error(
-          `Vapi API Error: ${response.status} - ${errorText}`
-        );
+        throw new Error(`Vapi API Error: ${response.status} - ${errorText}`);
       }
     }
 
@@ -202,7 +200,10 @@ export class VapiApiService {
     console.log(`✅ Vapi API response:`, data);
     console.log(`📊 Response type:`, typeof data);
     console.log(`📊 Is array:`, Array.isArray(data));
-    console.log(`📊 Has data property:`, data && typeof data === "object" && "data" in data);
+    console.log(
+      `📊 Has data property:`,
+      data && typeof data === "object" && "data" in data
+    );
 
     return data;
   }
@@ -210,10 +211,13 @@ export class VapiApiService {
   // Get phone numbers
   async getPhoneNumbers(): Promise<VapiPhoneNumber[]> {
     console.log("🔄 Fetching phone numbers...");
-    const response = await this.makeRequest<VapiPhoneNumbersResponse>('/phone-number', {
-      method: 'GET',
-    });
-    
+    const response = await this.makeRequest<VapiPhoneNumbersResponse>(
+      "/phone-number",
+      {
+        method: "GET",
+      }
+    );
+
     // Handle different response structures
     if (Array.isArray(response)) {
       return response;
@@ -228,8 +232,8 @@ export class VapiApiService {
   // Get call logs
   async getCallLogs(limit: number = 100): Promise<VapiCallLog[]> {
     console.log(`�� Fetching call logs (limit: ${limit})...`);
-    const response = await this.makeRequest<VapiCallLogsResponse>('/call', {
-      method: 'GET',
+    const response = await this.makeRequest<VapiCallLogsResponse>("/call", {
+      method: "GET",
     });
 
     // Handle different response structures
@@ -247,25 +251,140 @@ export class VapiApiService {
   async getCallDetails(callId: string): Promise<VapiCallDetails> {
     console.log(`🔄 Fetching call details for: ${callId}`);
     return await this.makeRequest<VapiCallDetails>(`/call/${callId}`, {
-      method: 'GET',
+      method: "GET",
     });
   }
 
   // Create outbound call
-  async createOutboundCall(request: OutboundCallRequest): Promise<OutboundCallResponse> {
+  async createOutboundCall(
+    request: OutboundCallRequest
+  ): Promise<OutboundCallResponse> {
     console.log("🔄 Creating outbound call to:", request.customer.number);
-    const response = await this.makeRequest<OutboundCallResponse>('/call/phone', {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
+    const response = await this.makeRequest<OutboundCallResponse>(
+      "/call/phone",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
     console.log("✅ Outbound call created:", response);
     return response;
+  }
+
+  // Check if transcript is already formatted with AI:/User: labels
+  private isPreFormattedTranscript(transcript: string): boolean {
+    return transcript.includes("AI:") || transcript.includes("User:");
+  }
+
+  // Extract transcript from multiple possible sources
+  private extractTranscript(vapiLog: VapiCallLog): string {
+    console.log("🔍 Extracting transcript from call log:", vapiLog.id);
+
+    // Try different sources for transcript data
+    let transcript = "";
+
+    // 1. Direct transcript field (highest priority)
+    if (vapiLog.transcript && vapiLog.transcript.trim()) {
+      transcript = vapiLog.transcript;
+      console.log(
+        "📝 Found direct transcript:",
+        transcript.substring(0, 100) + "..."
+      );
+
+      // If it's already formatted with AI:/User:, use it as-is
+      if (this.isPreFormattedTranscript(transcript)) {
+        console.log("📝 Transcript is pre-formatted, using as-is");
+        return transcript;
+      }
+    }
+
+    // 2. Artifact transcript
+    if (
+      !transcript &&
+      vapiLog.artifact?.transcript &&
+      vapiLog.artifact.transcript.trim()
+    ) {
+      transcript = vapiLog.artifact.transcript;
+      console.log(
+        "📝 Found artifact transcript:",
+        transcript.substring(0, 100) + "..."
+      );
+
+      // If it's already formatted with AI:/User:, use it as-is
+      if (this.isPreFormattedTranscript(transcript)) {
+        console.log("📝 Artifact transcript is pre-formatted, using as-is");
+        return transcript;
+      }
+    }
+
+    // 3. Build transcript from messages (only if no pre-formatted transcript found)
+    if (!transcript && vapiLog.messages && vapiLog.messages.length > 0) {
+      const messageTranscripts = vapiLog.messages
+        .filter((msg) => msg.content || msg.message)
+        .map((msg) => {
+          const role =
+            msg.role === "user"
+              ? "User"
+              : msg.role === "assistant"
+              ? "AI"
+              : "System";
+          const content = msg.content || msg.message || "";
+          return `${role}: ${content}`;
+        })
+        .join("\n");
+
+      if (messageTranscripts.trim()) {
+        transcript = messageTranscripts;
+        console.log(
+          "📝 Built transcript from messages:",
+          transcript.substring(0, 100) + "..."
+        );
+      }
+    }
+
+    // 4. Try artifact messages (only if no pre-formatted transcript found)
+    if (
+      !transcript &&
+      vapiLog.artifact?.messages &&
+      Array.isArray(vapiLog.artifact.messages)
+    ) {
+      const artifactMessages = vapiLog.artifact.messages
+        .filter((msg: any) => msg.content || msg.message)
+        .map((msg: any) => {
+          const role =
+            msg.role === "user"
+              ? "User"
+              : msg.role === "assistant"
+              ? "AI"
+              : "System";
+          const content = msg.content || msg.message || "";
+          return `${role}: ${content}`;
+        })
+        .join("\n");
+
+      if (artifactMessages.trim()) {
+        transcript = artifactMessages;
+        console.log(
+          "📝 Built transcript from artifact messages:",
+          transcript.substring(0, 100) + "..."
+        );
+      }
+    }
+
+    if (!transcript) {
+      console.log("⚠️ No transcript found for call:", vapiLog.id);
+    }
+
+    return transcript;
   }
 
   // Convert Vapi call log to our internal format
   convertToCallRecord(vapiLog: VapiCallLog): any {
     const callType = vapiLog.type === "outbound" ? "outbound" : "inbound";
-    
+
+    // Extract transcript from multiple sources
+    const transcript = this.extractTranscript(vapiLog);
+
     return {
       id: vapiLog.id,
       callType,
@@ -275,7 +394,7 @@ export class VapiApiService {
       startedAt: vapiLog.startedAt,
       endedAt: vapiLog.endedAt,
       cost: vapiLog.cost || 0,
-      transcript: vapiLog.transcript || "",
+      transcript: transcript,
       recordingUrl: vapiLog.recordingUrl || vapiLog.stereoRecordingUrl,
       summary: vapiLog.summary || "",
       messages: vapiLog.messages || [],
@@ -296,15 +415,15 @@ export class VapiApiService {
 
   private calculateDuration(startedAt: string, endedAt?: string): string {
     if (!endedAt) return "Ongoing";
-    
+
     const start = new Date(startedAt);
     const end = new Date(endedAt);
     const diffMs = end.getTime() - start.getTime();
-    
+
     const minutes = Math.floor(diffMs / 60000);
     const seconds = Math.floor((diffMs % 60000) / 1000);
-    
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   }
 }
 
