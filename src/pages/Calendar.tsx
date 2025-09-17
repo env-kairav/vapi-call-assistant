@@ -1,8 +1,9 @@
 import { Header } from "@/components/Header";
-import { useEffect, useMemo, useState, Fragment } from "react";
+import { useEffect, useMemo, useState, Fragment, useRef } from "react";
 import { calendarApi } from "@/lib/calendar-api";
 
-const hours = Array.from({ length: 12 }, (_, i) => i + 8); // 8:00 - 19:00
+// Expanded hours to include early morning (4 AM to 11 PM)
+const hours = Array.from({ length: 20 }, (_, i) => i + 4); // 4:00 - 23:00
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const monthNames = [
   "January",
@@ -57,27 +58,86 @@ const Calendar = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [hasNavigatedToEvents, setHasNavigatedToEvents] = useState(false);
+  
+  // Use ref to track if we've already fetched events to prevent duplicate API calls
+  const hasFetchedEvents = useRef(false);
+
+  // Function to deduplicate events
+  const deduplicateEvents = (events: CalendarEvent[]): CalendarEvent[] => {
+    const seen = new Map<string, CalendarEvent>();
+    
+    events.forEach(event => {
+      // Create a key based on start time, end time, and title to identify duplicates
+      const key = `${event.start}-${event.end}-${event.title}`;
+      
+      if (seen.has(key)) {
+        console.log("🔄 Calendar: Found duplicate event, merging:", event.title);
+        // If duplicate found, merge descriptions if they're different
+        const existing = seen.get(key)!;
+        if (event.description && existing.description && event.description !== existing.description) {
+          existing.description = `${existing.description}\n---\n${event.description}`;
+        }
+        // Keep the event with more details (longer description or more properties)
+        if ((event.description?.length || 0) > (existing.description?.length || 0)) {
+          seen.set(key, event);
+        }
+      } else {
+        seen.set(key, event);
+      }
+    });
+    
+    const deduplicated = Array.from(seen.values());
+    if (deduplicated.length !== events.length) {
+      console.log(`🔄 Calendar: Deduplicated ${events.length - deduplicated.length} duplicate events`);
+    }
+    
+    return deduplicated;
+  };
 
   // Fetch all events once
   useEffect(() => {
+    // Prevent duplicate API calls
+    if (hasFetchedEvents.current) {
+      console.log("🔄 Calendar: Events already fetched, skipping API call");
+      return;
+    }
+
     const fetchEvents = async () => {
       setLoading(true);
       setError(null);
+      hasFetchedEvents.current = true; // Mark as fetched immediately
+      
       try {
+        console.log("🔄 Calendar: Fetching events...");
         const list = await calendarApi.listEvents();
-        setEvents(list);
-        console.log("Calendar: loaded events", list);
+        console.log("📅 Calendar: Received events:", list);
+        
+        // Deduplicate events before setting state
+        const deduplicatedEvents = deduplicateEvents(list);
+        setEvents(deduplicatedEvents);
+        console.log("✅ Calendar: Set events state:", deduplicatedEvents.length, "events");
+        
+        // Auto-navigate to the first event if we have events and haven't navigated yet
+        if (deduplicatedEvents.length > 0 && !hasNavigatedToEvents) {
+          const firstEvent = deduplicatedEvents[0];
+          const eventDate = new Date(firstEvent.start);
+          console.log("📅 Calendar: Auto-navigating to first event date:", eventDate);
+          setCurrentDate(eventDate);
+          setHasNavigatedToEvents(true);
+        }
       } catch (e: any) {
-        console.error("Failed to load calendar events", e);
+        console.error("❌ Calendar: Failed to load events:", e);
         setError(e?.message || "Failed to load calendar events");
         setEvents([]);
+        hasFetchedEvents.current = false; // Reset on error so we can retry
       } finally {
         setLoading(false);
       }
     };
 
     fetchEvents();
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   const visibleEvents = useMemo(() => {
     const start = new Date(weekStart).getTime();
@@ -86,11 +146,35 @@ const Calendar = () => {
       d.setDate(d.getDate() + 7);
       return d.getTime();
     })();
-    return events.filter((ev) => {
+    
+    console.log("📅 Calendar: Filtering events for week:", {
+      weekStart: new Date(weekStart).toISOString(),
+      weekEnd: new Date(endTime).toISOString(),
+      totalEvents: events.length
+    });
+    
+    const filtered = events.filter((ev) => {
       const evStart = new Date(ev.start).getTime();
       const evEnd = new Date(ev.end).getTime();
-      return evStart < endTime && evEnd > start; // overlap
+      const overlaps = evStart < endTime && evEnd > start;
+      
+      console.log("📅 Event check:", {
+        title: ev.title,
+        start: ev.start,
+        end: ev.end,
+        evStart: new Date(evStart).toISOString(),
+        evEnd: new Date(evEnd).toISOString(),
+        overlaps,
+        eventDate: new Date(evStart).toDateString(),
+        weekStartDate: new Date(start).toDateString(),
+        weekEndDate: new Date(endTime).toDateString()
+      });
+      
+      return overlaps;
     });
+    
+    console.log("�� Calendar: Visible events:", filtered.length, filtered);
+    return filtered;
   }, [events, weekStart]);
 
   const cellHasEvent = (dayOffset: number, hour: number) => {
@@ -101,11 +185,41 @@ const Calendar = () => {
     const cellEnd = new Date(cellStart);
     cellEnd.setHours(hour + 1, 0, 0, 0);
 
-    return visibleEvents.filter((ev) => {
-      const evStart = new Date(ev.start).getTime();
-      const evEnd = new Date(ev.end).getTime();
-      return evStart < cellEnd.getTime() && evEnd > cellStart.getTime(); // overlap
+    const matches = visibleEvents.filter((ev) => {
+      const evStart = new Date(ev.start);
+      const evEnd = new Date(ev.end);
+      
+      // Check if the event is on the correct date
+      const eventDate = evStart.toDateString();
+      const cellDate = cellStart.toDateString();
+      
+      // Check if the event is in the correct hour
+      const eventStartHour = evStart.getHours();
+      
+      // Event should appear only if:
+      // 1. It's on the correct date
+      // 2. It starts in the correct hour
+      const shouldShow = eventDate === cellDate && eventStartHour === hour;
+      
+      if (shouldShow) {
+        console.log("📅 Cell event match:", {
+          dayOffset,
+          hour,
+          cellDate,
+          eventDate,
+          event: ev.title,
+          eventStartHour,
+          cellStart: cellStart.toISOString(),
+          cellEnd: cellEnd.toISOString(),
+          evStart: evStart.toISOString(),
+          evEnd: evEnd.toISOString()
+        });
+      }
+      
+      return shouldShow;
     });
+    
+    return matches;
   };
 
   const getDateLabel = (dayOffset: number) => {
@@ -169,6 +283,7 @@ const Calendar = () => {
             <button onClick={goPrevWeek} className="px-3 py-2 text-xs sm:text-sm border border-border rounded-md hover:bg-muted/30">Prev week</button>
             <button onClick={goToToday} className="px-3 py-2 text-xs sm:text-sm border border-border rounded-md hover:bg-muted/30">Today</button>
             <button onClick={goNextWeek} className="px-3 py-2 text-xs sm:text-sm border border-border rounded-md hover:bg-muted/30">Next week</button>
+            
             <select
               value={currentMonth}
               onChange={(e) => changeMonth(Number(e.target.value))}
@@ -236,12 +351,20 @@ const Calendar = () => {
                     const matches = cellHasEvent(i, h);
                     return (
                       <div key={`${h}-${i}`} className="border-t border-l border-border/40 h-16 relative hover:bg-muted/10 transition-colors">
-                        {matches.map((ev) => (
+                        {matches.map((ev, index) => (
                           <div
                             key={ev.id}
-                            className={`absolute left-1 right-1 top-1 bottom-1 rounded-md text-[10px] sm:text-xs text-white px-2 py-1 overflow-hidden ${ev.color || 'bg-primary/80'}`}
+                            className={`absolute left-1 right-1 top-1 bottom-1 rounded-md text-[10px] sm:text-xs text-white px-2 py-1 overflow-hidden ${
+                              ev.color || (index % 2 === 0 ? 'bg-primary/80' : 'bg-secondary/80')
+                            }`}
                             title={`${ev.title}`}
                             onClick={() => setSelectedEvent(ev)}
+                            style={{
+                              // If multiple events in same cell, stack them vertically
+                              top: `${index * 20}%`,
+                              height: `${100 - (index * 20)}%`,
+                              zIndex: 10 - index
+                            }}
                           >
                             <div className="truncate">{ev.title}</div>
                           </div>
@@ -288,4 +411,4 @@ const Calendar = () => {
   );
 };
 
-export default Calendar; 
+export default Calendar;

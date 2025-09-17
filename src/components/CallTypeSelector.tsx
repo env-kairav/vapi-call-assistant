@@ -38,7 +38,7 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
   onClose,
 }) => {
   const [selectedCountryCode, setSelectedCountryCode] = useState('+1');
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(true);
   const { startOutboundCall } = useVapi();
   const { toast } = useToast();
 
@@ -167,7 +167,7 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
               </Select>
               <Input
                 type="tel"
-                placeholder={selectedCountryCode === '+1' ? '5551234567' : '9408691548'}
+                placeholder={selectedCountryCode === '+1' ? '1234567890' : '1234567890'}
                 value={phoneNumber}
                 onChange={handlePhoneNumberChange}
                 className="flex-1"

@@ -7,12 +7,12 @@ export const N8N_WEBHOOK_BASE_URL =
   "https://envsarvaiyasunil.app.n8n.cloud/webhook";
 
 // Webhook paths from the provided n8n flow
-const CALENDAR_AVAILABILITY_PATH = "982fc29b-e89a-484d-b9e8-fa69ef336dc4";
-const CALENDAR_SET_APPOINTMENT_PATH = "2469bb34-9b73-4e74-a3f7-10d2e6ef850c";
+// const CALENDAR_AVAILABILITY_PATH = "982fc29b-e89a-484d-b9e8-fa69ef336dc4";
+// const CALENDAR_SET_APPOINTMENT_PATH = "2469bb34-9b73-4e74-a3f7-10d2e6ef850c";
 
 // OPTIONAL: Expose an events listing webhook to fetch calendar events for a date range
 // Create an n8n webhook that proxies Google Calendar events.list and set its path here
-export const N8N_CALENDAR_EVENTS_PATH = "get-all-calender-events"; // provided
+export const N8N_CALENDAR_EVENTS_PATH = "get-all-calender-data"; // provided
 
 export const CALENDAR_AVAILABILITY_TOOL = {
   type: "webhook",
@@ -31,7 +31,7 @@ export const CALENDAR_AVAILABILITY_TOOL = {
     },
     required: ["date"],
   },
-  url: `${N8N_WEBHOOK_BASE_URL}/${CALENDAR_AVAILABILITY_PATH}`,
+  //   url: `${N8N_WEBHOOK_BASE_URL}/${CALENDAR_AVAILABILITY_PATH}`,
   method: "POST",
 } as const;
 
@@ -60,7 +60,7 @@ export const CALENDAR_SET_APPOINTMENT_TOOL = {
     },
     required: ["name", "Phone", "date"],
   },
-  url: `${N8N_WEBHOOK_BASE_URL}/${CALENDAR_SET_APPOINTMENT_PATH}`,
+  //   url: `${N8N_WEBHOOK_BASE_URL}/${CALENDAR_SET_APPOINTMENT_PATH}`,
   method: "POST",
 } as const;
 

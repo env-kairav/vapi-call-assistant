@@ -66,7 +66,7 @@ const useCallRecords = () => {
     
     try {
       console.log('🔄 Loading call records from API...');
-      const vapiLogs = await vapiApiService.getAllCallLogs();
+      const vapiLogs = await vapiApiService.getCallLogs();
       
       // Convert logs to our CallRecord format
       const records = vapiLogs.map(log => vapiApiService.convertToCallRecord(log));

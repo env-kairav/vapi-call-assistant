@@ -118,6 +118,27 @@ export interface OutboundCallResponse {
   cost?: number;
 }
 
+// Phone number types
+export interface VapiPhoneNumber {
+  id: string;
+  orgId: string;
+  number: string;
+  createdAt: string;
+  updatedAt: string;
+  twilioAccountSid: string;
+  name: string;
+  provider: string;
+  status: string;
+}
+
+export interface VapiPhoneNumbersResponse {
+  data?: VapiPhoneNumber[];
+  hasMore?: boolean;
+  nextCursor?: string;
+  // The API might return the array directly
+  [key: string]: any;
+}
+
 // Vapi API service class
 export class VapiApiService {
   private apiKey: string;
@@ -158,482 +179,134 @@ export class VapiApiService {
 
       if (response.status === 401) {
         throw new Error(
-          `Vapi API Error: Unauthorized (401) - Invalid API key. Please check that you're using your Vapi PRIVATE key (not public key) in src/lib/vapi-config.ts. Error: ${errorText}`
+          "Vapi API Error: Unauthorized. Please check your API key in src/lib/vapi-config.ts"
         );
-      }
-
-      if (response.status === 400) {
+      } else if (response.status === 403) {
         throw new Error(
-          `Vapi API Error: Bad Request (400) - ${errorText}. Please check the API endpoint and parameters.`
+          "Vapi API Error: Forbidden. Please check your API permissions."
+        );
+      } else if (response.status === 404) {
+        throw new Error("Vapi API Error: Resource not found.");
+      } else if (response.status >= 500) {
+        throw new Error(
+          "Vapi API Error: Server error. Please try again later."
+        );
+      } else {
+        throw new Error(
+          `Vapi API Error: ${response.status} - ${errorText}`
         );
       }
-
-      throw new Error(`Vapi API Error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
     console.log(`✅ Vapi API response:`, data);
     console.log(`📊 Response type:`, typeof data);
     console.log(`📊 Is array:`, Array.isArray(data));
-    console.log(`📊 Has data property:`, "data" in data);
-    if ("data" in data) {
-      console.log(`📊 Data property type:`, typeof (data as any).data);
-      console.log(`📊 Data is array:`, Array.isArray((data as any).data));
-    }
+    console.log(`📊 Has data property:`, data && typeof data === "object" && "data" in data);
+
     return data;
   }
 
-  // Get call logs with pagination
-  async getCallLogs(
-    limit: number = 100,
-    cursor?: string
-  ): Promise<VapiCallLogsResponse> {
-    const params = new URLSearchParams({
-      limit: limit.toString(),
+  // Get phone numbers
+  async getPhoneNumbers(): Promise<VapiPhoneNumber[]> {
+    console.log("🔄 Fetching phone numbers...");
+    const response = await this.makeRequest<VapiPhoneNumbersResponse>('/phone-number', {
+      method: 'GET',
     });
-
-    if (cursor) {
-      params.append("cursor", cursor);
-    }
-
-    // Try the correct endpoint - based on Vapi docs, it should be /call (singular)
-    return this.makeRequest<VapiCallLogsResponse>(`/call?${params.toString()}`);
-  }
-
-  // Get specific call details
-  async getCallDetails(callId: string): Promise<VapiCallDetails> {
-    return this.makeRequest<VapiCallDetails>(`/call/${callId}`);
-  }
-
-  // Create outbound call - Updated to use correct endpoint
-  async createOutboundCall(
-    request: OutboundCallRequest
-  ): Promise<OutboundCallResponse> {
-    console.log("🔄 Creating outbound call to:", request.customer.number);
-
-    const response = await this.makeRequest<OutboundCallResponse>(
-      "/call/phone",
-      {
-        method: "POST",
-        body: JSON.stringify(request),
-      }
-    );
-
-    console.log("✅ Outbound call created:", response);
-    return response;
-  }
-
-  // Get all call logs (handles pagination automatically)
-  async getAllCallLogs(): Promise<VapiCallLog[]> {
-    try {
-      const allLogs: VapiCallLog[] = [];
-      let cursor: string | undefined;
-      let hasMore = true;
-
-      while (hasMore) {
-        const response = await this.getCallLogs(100, cursor);
-
-        // Handle different response structures
-        let logs: VapiCallLog[] = [];
-        if (Array.isArray(response)) {
-          // API returns array directly
-          logs = response as unknown as VapiCallLog[];
-          hasMore = false;
-        } else if (
-          (response as any).data &&
-          Array.isArray((response as any).data)
-        ) {
-          // API returns {data: [...]}
-          logs = (response as any).data;
-          hasMore = (response as any).hasMore || false;
-          cursor = (response as any).nextCursor;
-        } else {
-          console.error("Unexpected API response structure:", response);
-          break;
-        }
-
-        allLogs.push(...logs);
-
-        if (!hasMore) break;
-      }
-
-      return allLogs;
-    } catch (error) {
-      console.error(
-        "Failed to get call logs from /call endpoint, trying alternative...",
-        error
-      );
-
-      // Try alternative endpoint
-      try {
-        return await this.getCallLogsAlternative();
-      } catch (altError) {
-        console.error("Alternative endpoint also failed:", altError);
-        throw error; // Throw original error
-      }
-    }
-  }
-
-  // Alternative method to get call logs
-  private async getCallLogsAlternative(): Promise<VapiCallLog[]> {
-    console.log("🔄 Trying alternative endpoint: /calls");
-
-    const params = new URLSearchParams({
-      limit: "100",
-    });
-
-    const response = await this.makeRequest<VapiCallLogsResponse>(
-      `/calls?${params.toString()}`
-    );
-
+    
     // Handle different response structures
     if (Array.isArray(response)) {
-      return response as unknown as VapiCallLog[];
-    } else if (
-      (response as any).data &&
-      Array.isArray((response as any).data)
-    ) {
-      return (response as any).data;
+      return response;
+    } else if (response && Array.isArray(response.data)) {
+      return response.data;
     } else {
-      console.error("Unexpected alternative API response structure:", response);
+      console.warn("Unexpected phone numbers response structure:", response);
       return [];
     }
   }
 
-  // Convert Vapi call log to our CallRecord-like format
-  convertToCallRecord(vapiLog: VapiCallLog) {
-    // Extract candidate information from transcript or metadata (parsed; may be inaccurate)
-    const candidateName = this.extractCandidateName(vapiLog);
-    const phoneNumber = this.extractPhoneNumber(vapiLog);
-    const position = this.extractPosition(vapiLog);
-    const experience = this.extractExperience(vapiLog);
+  // Get call logs
+  async getCallLogs(limit: number = 100): Promise<VapiCallLog[]> {
+    console.log(`�� Fetching call logs (limit: ${limit})...`);
+    const response = await this.makeRequest<VapiCallLogsResponse>('/call', {
+      method: 'GET',
+    });
 
-    // Convert status
-    const callStatus = this.convertCallStatus(vapiLog.status);
+    // Handle different response structures
+    if (Array.isArray(response)) {
+      return response;
+    } else if (response && Array.isArray(response.data)) {
+      return response.data;
+    } else {
+      console.warn("Unexpected call logs response structure:", response);
+      return [];
+    }
+  }
 
-    // Compute useful fields
-    const startedAtIso = vapiLog.startedAt;
-    const endedAtIso = vapiLog.endedAt;
-    const summary = vapiLog.summary || (vapiLog.analysis as any)?.summary;
-    const recordingUrl =
-      vapiLog.recordingUrl ||
-      vapiLog.artifact?.recordingUrl ||
-      vapiLog.artifact?.recording?.mono?.combinedUrl;
-    const transcriptFull = (
-      vapiLog.transcript ||
-      vapiLog.artifact?.transcript ||
-      ""
-    )?.toString();
-    const transcriptSnippet = transcriptFull?.slice(0, 140);
+  // Get individual call details
+  async getCallDetails(callId: string): Promise<VapiCallDetails> {
+    console.log(`🔄 Fetching call details for: ${callId}`);
+    return await this.makeRequest<VapiCallDetails>(`/call/${callId}`, {
+      method: 'GET',
+    });
+  }
 
-    // Normalize messages from both sources
-    // Determine call type (inbound vs outbound)
-    // VAPI logs usually have a 'type' field that indicates the call direction
-    const callType: "inbound" | "outbound" =
-      vapiLog.type === "outboundPhoneCall" ? "outbound" : "inbound";
+  // Create outbound call
+  async createOutboundCall(request: OutboundCallRequest): Promise<OutboundCallResponse> {
+    console.log("🔄 Creating outbound call to:", request.customer.number);
+    const response = await this.makeRequest<OutboundCallResponse>('/call/phone', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    console.log("✅ Outbound call created:", response);
+    return response;
+  }
 
-    const normalizedMessages = this.normalizeMessages(vapiLog);
-
+  // Convert Vapi call log to our internal format
+  convertToCallRecord(vapiLog: VapiCallLog): any {
+    const callType = vapiLog.type === "outbound" ? "outbound" : "inbound";
+    
     return {
       id: vapiLog.id,
       callType,
-      callStatus,
-      startedAt: startedAtIso,
-      endedAt: endedAtIso,
-      summary,
+      phoneNumber: vapiLog.webCallUrl || "N/A",
+      duration: this.calculateDuration(vapiLog.startedAt, vapiLog.endedAt),
+      status: vapiLog.status,
+      startedAt: vapiLog.startedAt,
+      endedAt: vapiLog.endedAt,
+      cost: vapiLog.cost || 0,
+      transcript: vapiLog.transcript || "",
+      recordingUrl: vapiLog.recordingUrl || vapiLog.stereoRecordingUrl,
+      summary: vapiLog.summary || "",
+      messages: vapiLog.messages || [],
       endedReason: vapiLog.endedReason,
-      recordingUrl,
       assistantId: vapiLog.assistantId,
-      webCallUrl: vapiLog.webCallUrl,
-      transcriptSnippet,
-      transcript: transcriptFull,
-      messages: normalizedMessages,
-      // Parsed fields
-      candidateName,
-      phoneNumber,
-      position,
-      experience,
+      orgId: vapiLog.orgId,
+      createdAt: vapiLog.createdAt,
+      updatedAt: vapiLog.updatedAt,
+      costBreakdown: vapiLog.costBreakdown,
+      assistantOverrides: vapiLog.assistantOverrides,
+      analysis: vapiLog.analysis,
+      artifact: vapiLog.artifact,
+      costs: vapiLog.costs,
+      monitor: vapiLog.monitor,
+      transport: vapiLog.transport,
     };
   }
 
-  private normalizeMessages(vapiLog: VapiCallLog) {
-    const collected: Array<{
-      role: "user" | "assistant" | "system";
-      content: string;
-      time?: number;
-    }> = [];
-
-    const mapRole = (
-      r?: string
-    ): "user" | "assistant" | "system" | undefined => {
-      if (!r) return undefined;
-      const lower = r.toLowerCase();
-      if (lower === "bot" || lower === "assistant") return "assistant";
-      if (lower === "user" || lower === "customer") return "user";
-      if (lower === "system") return "system";
-      return undefined;
-    };
-
-    // Top-level messages
-    if (Array.isArray(vapiLog.messages)) {
-      for (const m of vapiLog.messages as any[]) {
-        if (!m) continue;
-        const role = mapRole(m.role);
-        const content = (m.message ?? m.content ?? "").toString();
-        if (!role || !content) continue;
-        collected.push({ role, content, time: (m as any).time });
-      }
-    }
-
-    // Artifact messages
-    if (Array.isArray(vapiLog.artifact?.messages)) {
-      for (const m of vapiLog.artifact!.messages as any[]) {
-        if (!m) continue;
-        const role = mapRole(m.role);
-        const content = (m.message ?? m.content ?? "").toString();
-        const time = (m.time as number) || undefined;
-        if (!role || !content) continue;
-        collected.push({ role, content, time });
-      }
-    }
-
-    // OpenAI formatted messages
-    if (Array.isArray(vapiLog.artifact?.messagesOpenAIFormatted)) {
-      for (const m of vapiLog.artifact!.messagesOpenAIFormatted as any[]) {
-        if (!m) continue;
-        const role = mapRole(m.role);
-        const content = (m.content ?? "").toString();
-        if (!role || !content) continue;
-        collected.push({ role, content });
-      }
-    }
-
-    // Sort by time if available
-    collected.sort((a, b) => {
-      if (a.time == null && b.time == null) return 0;
-      if (a.time == null) return 1;
-      if (b.time == null) return -1;
-      return a.time - b.time;
-    });
-
-    // Deduplicate by role+content (trimmed) and remove adjacent duplicates
-    const seen = new Set<string>();
-    const unique: typeof collected = [];
-    for (const m of collected) {
-      const key = `${m.role}|${m.content.trim()}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (unique.length > 0) {
-        const prev = unique[unique.length - 1];
-        if (prev.role === m.role && prev.content.trim() === m.content.trim()) {
-          continue;
-        }
-      }
-      unique.push(m);
-    }
-
-    // Fallback: if still empty but we have a transcript, create a single assistant message
-    if (
-      unique.length === 0 &&
-      (vapiLog.transcript || vapiLog.artifact?.transcript)
-    ) {
-      unique.push({
-        role: "assistant",
-        content: (
-          vapiLog.transcript ||
-          vapiLog.artifact?.transcript ||
-          ""
-        ).toString(),
-      });
-    }
-
-    return unique;
-  }
-
-  // Helper methods to extract information from call logs
-  private extractCandidateName(vapiLog: VapiCallLog): string | undefined {
-    // Try to extract from artifact messages first
-    if (vapiLog.artifact?.messages) {
-      const userMessages = vapiLog.artifact.messages.filter(
-        (msg: any) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const nameMatch = (msg.message as string).match(
-          /name[:\s]+([A-Za-z\s]+)/i
-        );
-        if (nameMatch) {
-          return nameMatch[1].trim();
-        }
-      }
-    }
-
-    // Try to extract from main messages
-    if (vapiLog.messages) {
-      const userMessages = vapiLog.messages.filter(
-        (msg) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const nameMatch = msg.message.match(/name[:\s]+([A-Za-z\s]+)/i);
-        if (nameMatch) {
-          return nameMatch[1].trim();
-        }
-      }
-    }
-
-    // Try to extract from transcript
-    if (vapiLog.transcript) {
-      const nameMatch = vapiLog.transcript.match(/name[:\s]+([A-Za-z\s]+)/i);
-      if (nameMatch) {
-        return nameMatch[1].trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  private extractPosition(vapiLog: VapiCallLog): string | undefined {
-    // Try to extract from artifact messages first
-    if (vapiLog.artifact?.messages) {
-      const userMessages = vapiLog.artifact.messages.filter(
-        (msg: any) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const positionMatch = (msg.message as string).match(
-          /(developer|engineer|designer|manager|analyst|angular|react|node|\.net|ios|ionic)/i
-        );
-        if (positionMatch) {
-          return positionMatch[1];
-        }
-      }
-    }
-
-    // Try to extract from main messages
-    if (vapiLog.messages) {
-      const userMessages = vapiLog.messages.filter(
-        (msg) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const positionMatch = msg.message.match(
-          /(developer|engineer|designer|manager|analyst|angular|react|node|\.net|ios|ionic)/i
-        );
-        if (positionMatch) {
-          return positionMatch[1];
-        }
-      }
-    }
-
-    // Try to extract from transcript
-    if (vapiLog.transcript) {
-      const positionMatch = vapiLog.transcript.match(
-        /(developer|engineer|designer|manager|analyst|angular|react|node|\.net|ios|ionic)/i
-      );
-      if (positionMatch) {
-        return positionMatch[1];
-      }
-    }
-
-    return undefined;
-  }
-
-  private extractExperience(vapiLog: VapiCallLog): string | undefined {
-    // Try to extract from artifact messages first
-    if (vapiLog.artifact?.messages) {
-      const userMessages = vapiLog.artifact.messages.filter(
-        (msg: any) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const experienceMatch = (msg.message as string).match(
-          /(\d+)\s*(year|yr)/i
-        );
-        if (experienceMatch) {
-          return `${experienceMatch[1]} years`;
-        }
-      }
-    }
-
-    // Try to extract from main messages
-    if (vapiLog.messages) {
-      const userMessages = vapiLog.messages.filter(
-        (msg) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const experienceMatch = msg.message.match(/(\d+)\s*(year|yr)/i);
-        if (experienceMatch) {
-          return `${experienceMatch[1]} years`;
-        }
-      }
-    }
-
-    // Try to extract from transcript
-    if (vapiLog.transcript) {
-      const experienceMatch = vapiLog.transcript.match(/(\d+)\s*(year|yr)/i);
-      if (experienceMatch) {
-        return `${experienceMatch[1]} years`;
-      }
-    }
-
-    return undefined;
-  }
-
-  private extractPhoneNumber(vapiLog: VapiCallLog): string | undefined {
-    // Try to extract from artifact messages first
-    if (vapiLog.artifact?.messages) {
-      const userMessages = vapiLog.artifact.messages.filter(
-        (msg: any) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const phoneMatch = (msg.message as string).match(
-          /(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})/
-        );
-        if (phoneMatch) {
-          return phoneMatch[1];
-        }
-      }
-    }
-
-    // Try to extract from main messages
-    if (vapiLog.messages) {
-      const userMessages = vapiLog.messages.filter(
-        (msg) => msg.role === "user"
-      );
-      for (const msg of userMessages) {
-        const phoneMatch = msg.message.match(
-          /(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})/
-        );
-        if (phoneMatch) {
-          return phoneMatch[1];
-        }
-      }
-    }
-
-    // Try to extract from transcript
-    if (vapiLog.transcript) {
-      const phoneMatch = vapiLog.transcript.match(
-        /(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})/
-      );
-      if (phoneMatch) {
-        return phoneMatch[1];
-      }
-    }
-
-    return undefined;
-  }
-
-  private convertCallStatus(
-    vapiStatus: string
-  ): "completed" | "pending" | "failed" {
-    switch (vapiStatus) {
-      case "ended":
-        return "completed";
-      case "in-progress":
-      case "ringing":
-      case "queued":
-        return "pending";
-      default:
-        return "failed";
-    }
+  private calculateDuration(startedAt: string, endedAt?: string): string {
+    if (!endedAt) return "Ongoing";
+    
+    const start = new Date(startedAt);
+    const end = new Date(endedAt);
+    const diffMs = end.getTime() - start.getTime();
+    
+    const minutes = Math.floor(diffMs / 60000);
+    const seconds = Math.floor((diffMs % 60000) / 1000);
+    
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 }
 
-// Export singleton instance
+// Create and export a singleton instance
 export const vapiApiService = new VapiApiService();
