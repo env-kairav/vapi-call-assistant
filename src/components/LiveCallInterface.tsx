@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
 import { useVapi } from "@/hooks/useVapi";
+import { CallType } from "@/components/CallTypeSelector";
 
 interface LiveCallInterfaceProps {
   isCallActive: boolean;
   callStatus: "idle" | "connecting" | "active" | "ended";
+  callType: CallType;
+  phoneNumber?: string;
   onCallStart: () => void;
   onCallEnd: () => void;
   onCallSummary?: (summary: any) => void;
@@ -15,6 +18,8 @@ interface LiveCallInterfaceProps {
 export const LiveCallInterface = ({ 
   isCallActive, 
   callStatus, 
+  callType,
+  phoneNumber,
   onCallStart, 
   onCallEnd,
   onCallSummary 
@@ -37,6 +42,7 @@ export const LiveCallInterface = ({
     isListening,
     microphoneStatus,
     startCall: vapiStartCall,
+    startOutboundCall: vapiStartOutboundCall,
     stopCall: vapiStopCall,
     toggleMute: vapiToggleMute,
     sendMessage
@@ -54,13 +60,26 @@ export const LiveCallInterface = ({
     }
   }, [connected, messages, assistantHasSpoken]);
 
-  // Handle Vapi call events
+  // Handle Vapi call events based on connection transitions
+  const prevConnectedRef = useRef<boolean>(false);
   useEffect(() => {
-    if (connected && !isCallActive) {
+    const prevConnected = prevConnectedRef.current;
+
+    // Debug
+    console.log("🔄 LiveCallInterface: connected=", connected, "prevConnected=", prevConnected, "isCallActive=", isCallActive);
+
+    // Fire start when transitioning from not connected to connected
+    if (!prevConnected && connected) {
       onCallStart();
-    } else if (!connected && isCallActive) {
+    }
+
+    // Fire end when transitioning from connected to not connected
+    if (prevConnected && !connected) {
       onCallEnd();
     }
+
+    // Update ref
+    prevConnectedRef.current = connected;
   }, [connected, isCallActive, onCallStart, onCallEnd]);
 
   // Auto-scroll to latest message
@@ -211,12 +230,18 @@ export const LiveCallInterface = ({
       <div className="flex justify-center items-center space-x-4 relative z-20">
         {!connected && callStatus !== "connecting" ? (
           <Button
-            onClick={vapiStartCall}
+            onClick={() => {
+              if (callType === "inbound") {
+                vapiStartCall();
+              } else if (callType === "outbound" && phoneNumber) {
+                vapiStartOutboundCall(phoneNumber);
+              }
+            }}
             className="bg-gradient-primary hover:shadow-intense px-8 py-3 text-base font-medium transition-all duration-300"
-            disabled={callStatus === "ended"}
+            disabled={callStatus === "ended" || (callType === "outbound" && !phoneNumber)}
           >
             <Phone className="w-5 h-5 mr-2" />
-            Start Call
+            {callType === "inbound" ? "Start Inbound Call" : `Call ${phoneNumber}`}
           </Button>
         ) : (
           <div className="flex space-x-3">

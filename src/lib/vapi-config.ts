@@ -22,12 +22,10 @@ export const getVapiConfig = (currentTime: string) => ({
     language: "en",
     smartFormat: true,
   },
-  silenceTimeoutMs: 5000, // Wait 5 seconds of silence before ending
-  endCallOnSilence: false, // Don't end call on silence
+  // Remove problematic settings that cause immediate call ending
+  // silenceTimeoutMs: 5000, // This was causing calls to end
+  // endCallOnSilence: false, // This was causing issues
   interruptible: true, // Allow interrupting the assistant
-  firstMessage:
-    "Good hahahahhahahahah, you've reached Envisage Infotech. I'm the HR here. How may I assist you today?",
-  endCallMessage:
-    "Thank you for contacting Envisage Infotech HR. Have a great day.",
-  voicemailMessage: "Please call back when you're available.",
+  firstMessage: "Hi! You've reached Envisage Infotech HR. How may I assist you today?",
+  // Remove endCallMessage to prevent immediate ending
 });

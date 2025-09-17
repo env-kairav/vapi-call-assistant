@@ -3,6 +3,7 @@ import { Header } from "@/components/Header";
 import { CallRecordsTable } from "@/components/CallRecordsTable";
 import { LiveCallInterface } from "@/components/LiveCallInterface";
 import { RecordDetailsModal } from "@/components/RecordDetailsModal";
+import { CallTypeSelector, CallType } from "@/components/CallTypeSelector";
 import { vapiApiService } from "@/lib/vapi-api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -127,11 +128,16 @@ const Index = () => {
   const [isCallActive, setIsCallActive] = useState(false);
   const [callStatus, setCallStatus] = useState<"idle" | "connecting" | "active" | "ended">("idle");
   const [showCallInterface, setShowCallInterface] = useState(false);
+  const [isCallMinimized, setIsCallMinimized] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<CallRecord | null>(null);
   const [showRecordDetails, setShowRecordDetails] = useState(false);
+  const [callType, setCallType] = useState<CallType>("inbound");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const { toast } = useToast();
+  const [showStartPopup, setShowStartPopup] = useState(true);
 
   const handleCallStart = () => {
+    console.log("🚀 Starting inbound call...");
     setCallStatus("connecting");
     setIsCallActive(true);
     setShowCallInterface(true);
@@ -141,7 +147,37 @@ const Index = () => {
     }, 2000);
   };
 
+  const handleOutboundCallStart = () => {
+    console.log("🚀 Starting outbound call to:", phoneNumber);
+    setCallStatus("connecting");
+    setIsCallActive(true);
+    setShowCallInterface(true);
+    // For outbound calls, we'll handle the actual calling in the LiveCallInterface
+    setTimeout(() => {
+      setCallStatus("active");
+    }, 2000);
+  };
+
+  const handleMinimizeCall = () => {
+    console.log("📱 Minimizing call window");
+    setIsCallMinimized(true);
+  };
+
+  const handleMaximizeCall = () => {
+    console.log("📱 Maximizing call window");
+    setIsCallMinimized(false);
+  };
+
+  const handleCloseCall = () => {
+    console.log("❌ Closing call window");
+    setShowCallInterface(false);
+    setIsCallMinimized(false);
+    setCallStatus("idle");
+    setIsCallActive(false);
+  };
+
   const handleCallEnd = () => {
+    console.log("📞 Call ended");
     setCallStatus("ended");
     setIsCallActive(false);
 
@@ -218,38 +254,124 @@ const Index = () => {
         </div>
       </main>
 
-      {/* Floating Call Widget */}
-      {!showCallInterface && (
+      {/* Call Type Selector */}
+      {!showCallInterface && showStartPopup && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <CallTypeSelector
+            callType={callType}
+            onCallTypeChange={setCallType}
+            phoneNumber={phoneNumber}
+            onPhoneNumberChange={setPhoneNumber}
+            onStartCall={callType === "inbound" ? handleCallStart : handleOutboundCallStart}
+            isCallActive={isCallActive}
+            onClose={() => setShowStartPopup(false)}
+          />
+        </div>
+      )}
+
+      {/* Re-open Start New Call button when popup is closed */}
+      {!showCallInterface && !showStartPopup && (
         <button
-          onClick={() => setShowCallInterface(true)}
-          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-siri rounded-full shadow-glow hover:shadow-intense transition-all duration-300 animate-pulse-glow z-40"
+          onClick={() => setShowStartPopup(true)}
+          className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center"
+          title="Start New Call"
         >
-          <div className="w-full h-full bg-gradient-call rounded-full flex items-center justify-center">
-            <div className="w-6 h-6 bg-foreground rounded-full opacity-80"></div>
-          </div>
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.62 2.6a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.48-1.19a2 2 0 0 1 2.11-.45c.83.29 1.7.5 2.6.62A2 2 0 0 1 22 16.92z" />
+          </svg>
         </button>
       )}
 
       {/* Full Screen Call Interface */}
-      {showCallInterface && (
+      {showCallInterface && !isCallMinimized && (
         <div className="fixed inset-0 bg-background/60 backdrop-blur-xl z-50 flex items-center justify-center p-4">
           <div className="relative w-full max-w-2xl">
-            {/* Close Button */}
-            <button
-              onClick={() => setShowCallInterface(false)}
-              className="absolute top-4 right-4 z-10 w-10 h-10 bg-card/80 backdrop-blur-sm rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card/90 transition-all duration-200 border border-border/20"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {/* Control Buttons */}
+            <div className="absolute top-4 right-4 z-10 flex gap-2">
+              {/* Minimize Button */}
+              <button
+                onClick={handleMinimizeCall}
+                className="w-10 h-10 bg-card/80 backdrop-blur-sm rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card/90 transition-all duration-200 border border-border/20"
+                title="Minimize"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                </svg>
+              </button>
+              
+              {/* Close Button */}
+              {/* <button
+                onClick={handleCloseCall}
+                className="w-10 h-10 bg-card/80 backdrop-blur-sm rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card/90 transition-all duration-200 border border-border/20"
+                title="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button> */}
+            </div>
             
             <LiveCallInterface
               isCallActive={isCallActive}
               callStatus={callStatus}
-              onCallStart={handleCallStart}
+              callType={callType}
+              phoneNumber={phoneNumber}
+              onCallStart={callType === "inbound" ? handleCallStart : handleOutboundCallStart}
               onCallEnd={handleCallEnd}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Minimized Call Interface */}
+      {showCallInterface && isCallMinimized && (
+        <div className="fixed bottom-6 left-6 z-50">
+          <div className="bg-card rounded-xl p-4 shadow-card border border-border/20 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              {/* Call Status Indicator */}
+              <div className={`w-3 h-3 rounded-full ${
+                callStatus === "active" || isCallActive 
+                  ? "bg-green-500 animate-pulse" 
+                  : callStatus === "connecting" 
+                    ? "bg-yellow-500 animate-pulse" 
+                    : "bg-gray-400"
+              }`}></div>
+              
+              {/* Call Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {callType === "inbound" ? "Inbound Call" : `Calling ${phoneNumber}`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {callStatus === "active" ? "Connected" : 
+                   callStatus === "connecting" ? "Connecting..." : 
+                   "Ready"}
+                </p>
+              </div>
+              
+              {/* Control Buttons */}
+              <div className="flex gap-1">
+                <button
+                  onClick={handleMaximizeCall}
+                  className="w-8 h-8 bg-primary/10 hover:bg-primary/20 rounded-lg flex items-center justify-center text-primary transition-colors"
+                  title="Maximize"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </button>
+                
+                <button
+                  onClick={handleCloseCall}
+                  className="w-8 h-8 bg-destructive/10 hover:bg-destructive/20 rounded-lg flex items-center justify-center text-destructive transition-colors"
+                  title="End Call"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

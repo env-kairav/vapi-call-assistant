@@ -95,6 +95,29 @@ export interface VapiCallDetails extends VapiCallLog {
   // Additional details for individual call
 }
 
+// Outbound call types
+export interface OutboundCallCustomer {
+  number: string;
+}
+
+export interface OutboundCallRequest {
+  assistantId: string;
+  customer: OutboundCallCustomer;
+  phoneNumberId?: string;
+  // Optional: pass assistant preferences (voice, model, transcriber, firstMessage, variables, tools, etc.)
+  assistantOverrides?: Record<string, any>;
+}
+
+export interface OutboundCallResponse {
+  id: string;
+  assistantId: string;
+  customer: OutboundCallCustomer;
+  status: "queued" | "ringing" | "in-progress" | "ended";
+  startedAt?: string;
+  endedAt?: string;
+  cost?: number;
+}
+
 // Vapi API service class
 export class VapiApiService {
   private apiKey: string;
@@ -180,6 +203,24 @@ export class VapiApiService {
   // Get specific call details
   async getCallDetails(callId: string): Promise<VapiCallDetails> {
     return this.makeRequest<VapiCallDetails>(`/call/${callId}`);
+  }
+
+  // Create outbound call - Updated to use correct endpoint
+  async createOutboundCall(
+    request: OutboundCallRequest
+  ): Promise<OutboundCallResponse> {
+    console.log("🔄 Creating outbound call to:", request.customer.number);
+
+    const response = await this.makeRequest<OutboundCallResponse>(
+      "/call/phone",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+
+    console.log("✅ Outbound call created:", response);
+    return response;
   }
 
   // Get all call logs (handles pagination automatically)
@@ -286,10 +327,16 @@ export class VapiApiService {
     const transcriptSnippet = transcriptFull?.slice(0, 140);
 
     // Normalize messages from both sources
+    // Determine call type (inbound vs outbound)
+    // VAPI logs usually have a 'type' field that indicates the call direction
+    const callType: "inbound" | "outbound" =
+      vapiLog.type === "outboundPhoneCall" ? "outbound" : "inbound";
+
     const normalizedMessages = this.normalizeMessages(vapiLog);
 
     return {
       id: vapiLog.id,
+      callType,
       callStatus,
       startedAt: startedAtIso,
       endedAt: endedAtIso,
