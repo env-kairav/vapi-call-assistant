@@ -130,7 +130,7 @@ export interface CallRecord {
   type: "inbound" | "outbound";
   phoneNumber: string;
   duration: string;
-  status: string;
+  callStatus: "completed" | "pending" | "failed";
   startedAt: string;
   endedAt?: string;
   cost?: number;
@@ -386,12 +386,27 @@ class VapiApiService {
     // Determine call type based on the log
     const callType: "inbound" | "outbound" = vapiLog.type === "inbound" ? "inbound" : "outbound";
 
+    // Map VAPI status to CallRecord callStatus
+    const mapStatus = (status: string): "completed" | "pending" | "failed" => {
+      switch (status) {
+        case "ended":
+          return "completed";
+        case "in-progress":
+        case "ringing":
+        case "queued":
+        case "forwarding":
+          return "pending";
+        default:
+          return "failed";
+      }
+    };
+
     return {
       id: vapiLog.id,
       type: callType,
       phoneNumber: "Unknown", // VAPI doesn't provide phone number in logs
       duration: this.calculateDuration(vapiLog.startedAt, vapiLog.endedAt),
-      status: vapiLog.status,
+      callStatus: mapStatus(vapiLog.status), // Fixed: use callStatus instead of status
       startedAt: vapiLog.startedAt,
       endedAt: vapiLog.endedAt,
       cost: vapiLog.cost,
