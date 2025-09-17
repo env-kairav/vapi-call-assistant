@@ -1,246 +1,224 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Vapi from "@vapi-ai/web";
-import {
-  VAPI_PUBLIC_KEY,
-  VAPI_ASSISTANT_ID,
-  getVapiConfig,
-} from "@/lib/vapi-config";
 import { setupSpeechRecognition } from "@/lib/speech-recognition";
 import { vapiApiService, OutboundCallRequest } from "@/lib/vapi-api";
+import { VAPI_ASSISTANT_ID, VAPI_PUBLIC_KEY } from "@/lib/vapi-config";
 
-interface Message {
-  time: string;
+export type CallType = "inbound" | "outbound";
+
+export interface Message {
   type: "user" | "assistant" | "system";
   content: string;
+  timestamp: number;
 }
 
-interface UseVapiReturn {
-  // State
+export interface UseVapiReturn {
+  isCallActive: boolean;
   connected: boolean;
-  assistantIsSpeaking: boolean;
-  volumeLevel: number;
   isMuted: boolean;
+  volumeLevel: number;
   messages: Message[];
-  userSpeaking: boolean;
   currentSpeech: string;
-  isListening: boolean;
-  microphoneStatus: "inactive" | "listening" | "speaking";
-
-  // Actions
   startCall: () => Promise<void>;
-  startOutboundCall: (phoneNumber: string) => Promise<void>;
   stopCall: () => void;
   toggleMute: () => void;
   sendMessage: (message: string) => void;
-  addMessage: (type: "user" | "assistant" | "system", content: string) => void;
+  startOutboundCall: (phoneNumber: string) => Promise<void>;
 }
 
 export const useVapi = (): UseVapiReturn => {
-  const [vapi] = useState(() => new Vapi(VAPI_PUBLIC_KEY));
+  const [isCallActive, setIsCallActive] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [assistantIsSpeaking, setAssistantIsSpeaking] = useState(false);
-  const [volumeLevel, setVolumeLevel] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [volumeLevel, setVolumeLevel] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [userSpeaking, setUserSpeaking] = useState(false);
   const [currentSpeech, setCurrentSpeech] = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [microphoneStatus, setMicrophoneStatus] = useState<
-    "inactive" | "listening" | "speaking"
-  >("inactive");
-
   const recognitionRef = useRef<any>(null);
   const callStartedRef = useRef(false);
+  const vapiRef = useRef<Vapi | null>(null);
 
-  // Cross-browser microphone access helper
-  const getUserMediaSafe = useCallback(
-    async (constraints: MediaStreamConstraints) => {
+  const addMessage = useCallback((type: Message["type"], content: string) => {
+    const message: Message = {
+      type,
+      content,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, message]);
+  }, []);
+
+  const getUserMediaSafe = useCallback(async () => {
+    try {
+      // Try modern API first
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      // Fallback for older browsers
+      if ((navigator as any).getUserMedia) {
+        return new Promise((resolve, reject) => {
+          (navigator as any).getUserMedia(
+            { audio: true },
+            resolve,
+            reject
+          );
+        });
+      }
+      throw new Error("getUserMedia not supported");
+    } catch (error) {
+      console.error("❌ Microphone access failed:", error);
+      throw new Error("Microphone API not available");
+    }
+  }, []);
+
+  const startCall = useCallback(async () => {
+    try {
+      console.log("🚀 Starting call initialization...");
+      addMessage("system", "Initializing call...");
+
+      // Check microphone access
       try {
-        const nav: any = navigator as any;
-        if (
-          nav &&
-          nav.mediaDevices &&
-          typeof nav.mediaDevices.getUserMedia === "function"
-        ) {
-          return await nav.mediaDevices.getUserMedia(constraints);
+        const stream = await getUserMediaSafe();
+        console.log("🎤 Microphone access granted");
+        // Properly type the stream and stop tracks
+        if (stream && typeof stream === 'object' && 'getTracks' in stream) {
+          (stream as MediaStream).getTracks().forEach(track => track.stop());
         }
-        const legacyGetUserMedia =
-          nav &&
-          (nav.getUserMedia || nav.webkitGetUserMedia || nav.mozGetUserMedia);
-        if (legacyGetUserMedia) {
-          return await new Promise<MediaStream>((resolve, reject) => {
-            legacyGetUserMedia.call(nav, constraints, resolve, reject);
-          });
-        }
-        throw new Error("Microphone API not available");
-      } catch (err) {
-        throw err;
+      } catch (micError) {
+        console.warn("⚠️ Microphone not available, but continuing with call:", micError);
+        addMessage("system", "Note: Microphone not available, but call can continue.");
       }
-    },
-    []
-  );
 
-  const addMessage = useCallback(
-    (type: "user" | "assistant" | "system", content: string) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          time: new Date().toLocaleTimeString(),
-          type,
-          content,
+      // Initialize VAPI instance if not already done
+      if (!vapiRef.current) {
+        vapiRef.current = new Vapi(VAPI_PUBLIC_KEY);
+      }
+
+      // Start VAPI call
+      console.log("🎯 Starting VAPI call...");
+      await vapiRef.current.start(VAPI_ASSISTANT_ID);
+      console.log("✅ VAPI call started successfully");
+    } catch (error: any) {
+      console.error("❌ Error starting call:", error);
+      addMessage("system", `Error starting call: ${error.message || error}`);
+    }
+  }, [addMessage, getUserMediaSafe]);
+
+  const handleCallStart = useCallback(() => {
+    console.log("📞 Call started");
+    setIsCallActive(true);
+    setConnected(true);
+    callStartedRef.current = true;
+    addMessage("system", "Call connected successfully!");
+
+    // Start speech recognition after a delay to ensure call is stable
+    setTimeout(() => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      recognitionRef.current = setupSpeechRecognition({
+        onStart: () => {
+          console.log("🎤 Speech recognition started");
         },
-      ]);
-    },
-    []
-  );
-
-  // Initialize speech recognition
-  useEffect(() => {
-    recognitionRef.current = setupSpeechRecognition({
-      onStart: () => {
-        console.log("🎤 Voice recognition started");
-        setMicrophoneStatus("listening");
-        setIsListening(true);
-      },
-      onEnd: () => {
-        console.log("🎤 Voice recognition ended");
-        setIsListening(false);
-        setMicrophoneStatus("inactive");
-        if (connected) {
-          setTimeout(() => {
-            recognitionRef.current?.start();
-          }, 100);
-        }
-      },
-      onResult: (transcript, isFinal) => {
-        console.log("🗣️ Recognition result:", transcript, "Final:", isFinal);
-        setMicrophoneStatus("speaking");
-        setUserSpeaking(true);
-        setCurrentSpeech(transcript);
-
-        if (isFinal) {
-          vapi.send({
-            type: "add-message",
-            message: {
-              role: "user",
-              content: transcript,
-            },
-          });
-          console.log("✉️ Sent to assistant:", transcript);
-          setMicrophoneStatus("listening");
-          setUserSpeaking(false);
-          setCurrentSpeech("");
-        }
-      },
-      onError: (error) => {
-        if (error === "no-speech") {
-          console.log("🎤 No speech detected, continuing to listen...");
-          setMicrophoneStatus("listening");
-          return;
-        }
-
-        console.error("🔇 Recognition error:", error);
-        setMicrophoneStatus("inactive");
-
-        if (connected) {
-          setTimeout(() => {
-            recognitionRef.current?.start();
-          }, 1000);
-        }
-      },
-    });
-
-    return () => {
-      recognitionRef.current?.stop();
-    };
-  }, [connected, vapi]);
-
-  // Set up Vapi event listeners
-  useEffect(() => {
-    const handleCallStart = () => {
-      console.log("📞 Call started - setting connected to true");
-      callStartedRef.current = true;
-      setConnected(true);
-      addMessage("system", "Call connected successfully!");
-
-      // Start voice recognition after a delay
-      setTimeout(() => {
-        console.log("🎤 Starting speech recognition...");
-        recognitionRef.current?.start();
-      }, 3000);
-    };
-
-    const handleCallEnd = () => {
-      console.log("📞 Call ended - setting connected to false");
-      callStartedRef.current = false;
-      setConnected(false);
-      setAssistantIsSpeaking(false);
-      setVolumeLevel(0);
-      setUserSpeaking(false);
-      setCurrentSpeech("");
-      recognitionRef.current?.stop();
-      addMessage("system", "Call ended");
-    };
-
-    const handleSpeechStart = () => {
-      console.log("🤖 Assistant started speaking");
-      setAssistantIsSpeaking(true);
-      // Temporarily stop recognition while assistant is speaking
-      recognitionRef.current?.stop();
-    };
-
-    const handleSpeechEnd = () => {
-      console.log("🤖 Assistant finished speaking");
-      setAssistantIsSpeaking(false);
-      // Resume recognition after assistant finishes speaking
-      if (connected) {
-        setTimeout(() => {
-          recognitionRef.current?.start();
-        }, 500);
-      }
-    };
-
-    const handleVolumeLevel = (volume: number) => {
-      setVolumeLevel(volume);
-    };
-
-    const handleMessage = (message: any) => {
-      console.log("📨 Message received:", message);
-
-      if (message.type === "transcript") {
-        if (message.role === "user") {
-          console.log("🎤 User:", message.transcript);
-          if (message.transcriptType === "final") {
-            addMessage("user", message.transcript);
+        onResult: (transcript, isFinal) => {
+          console.log("🗣️ Recognition result:", transcript, "Final:", isFinal);
+          if (isFinal && transcript.trim()) {
+            setCurrentSpeech("");
+            addMessage("user", transcript);
+            if (vapiRef.current) {
+              vapiRef.current.send({
+                type: 'add-message',
+                message: {
+                  role: 'user',
+                  content: transcript
+                }
+              });
+            }
+            console.log("✉️ Sent to assistant:", transcript);
+          } else {
+            setCurrentSpeech(transcript);
           }
-        } else if (message.role === "assistant") {
-          console.log("🤖 Assistant:", message.transcript);
-          if (message.transcriptType === "final") {
-            addMessage("assistant", message.transcript);
+        },
+        onError: (error) => {
+          console.log("🔇 Recognition error:", error);
+          if (error === "no-speech") {
+            console.log("🎤 No speech detected, continuing to listen...");
           }
+        },
+        onEnd: () => {
+          console.log("🎤 Voice recognition ended");
+        },
+      });
+    }, 3000); // 3 second delay
+  }, [addMessage]);
+
+  const handleCallEnd = useCallback(() => {
+    console.log("📞 Call ended");
+    setIsCallActive(false);
+    setConnected(false);
+    callStartedRef.current = false;
+    addMessage("system", "Call ended");
+    
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+  }, [addMessage]);
+
+  const handleSpeechStart = useCallback(() => {
+    console.log("🎤 Speech started");
+  }, []);
+
+  const handleSpeechEnd = useCallback(() => {
+    console.log("🎤 Speech ended");
+  }, []);
+
+  const handleVolumeLevel = (volume: number) => {
+    setVolumeLevel(volume);
+  };
+
+  const handleMessage = (message: any) => {
+    console.log("📨 Message received:", message);
+
+    if (message.type === "transcript") {
+      if (message.role === "user") {
+        console.log("🎤 User:", message.transcript);
+        if (message.transcriptType === "final") {
+          addMessage("user", message.transcript);
         }
-      } else if (message.type === "status-update") {
-        if (message.status === "in-progress") {
-          // no-op; handled by call-start
-        } else if (message.status === "ended") {
-          // ensure we reflect end
-          handleCallEnd();
+      } else if (message.role === "assistant") {
+        console.log("🤖 Assistant:", message.transcript);
+        if (message.transcriptType === "final") {
+          addMessage("assistant", message.transcript);
         }
-      } else if (message.type === "error") {
-        console.error("❌ Error:", message);
-        addMessage(
-          "system",
-          `Error: ${message.error?.message || "Unknown error"}`
-        );
       }
-    };
+    } else if (message.type === "status-update") {
+      if (message.status === "in-progress") {
+        // no-op; handled by call-start
+      } else if (message.status === "ended") {
+        // ensure we reflect end
+        handleCallEnd();
+      }
+    } else if (message.type === "error") {
+      console.error("❌ Error:", message);
+      addMessage(
+        "system",
+        `Error: ${message.error?.message || "Unknown error"}`
+      );
+    }
+  };
 
-    const handleError = (error: any) => {
-      console.error("❌ Vapi error:", error);
-      addMessage("system", `Vapi Error: ${error.message || "Unknown error"}`);
-    };
+  const handleError = (error: any) => {
+    console.error("❌ Vapi error:", error);
+    addMessage("system", `Vapi Error: ${error.message || "Unknown error"}`);
+  };
 
-    // Add event listeners
+  // Initialize VAPI instance and add event listeners
+  useEffect(() => {
+    if (!vapiRef.current) {
+      vapiRef.current = new Vapi(VAPI_PUBLIC_KEY);
+    }
+
+    const vapi = vapiRef.current;
+    
     vapi.on("call-start", handleCallStart);
     vapi.on("call-end", handleCallEnd);
     vapi.on("speech-start", handleSpeechStart);
@@ -250,7 +228,6 @@ export const useVapi = (): UseVapiReturn => {
     vapi.on("error", handleError);
 
     return () => {
-      // Remove event listeners
       vapi.off("call-start", handleCallStart);
       vapi.off("call-end", handleCallEnd);
       vapi.off("speech-start", handleSpeechStart);
@@ -258,199 +235,8 @@ export const useVapi = (): UseVapiReturn => {
       vapi.off("volume-level", handleVolumeLevel);
       vapi.off("message", handleMessage);
       vapi.off("error", handleError);
-
-      // Do NOT stop the call here; only explicit stopCall should end it
-      recognitionRef.current?.stop();
     };
-  }, [vapi, addMessage]);
-
-  const startCall = useCallback(async () => {
-    try {
-      console.log("🚀 Starting call initialization...");
-      addMessage("system", "Starting call...");
-
-      // Environment checks
-      if (typeof window === "undefined" || typeof navigator === "undefined") {
-        throw new Error("This feature requires a browser environment.");
-      }
-      if (!window.isSecureContext) {
-        addMessage(
-          "system",
-          "Microphone requires a secure context (HTTPS or localhost). Please use HTTPS and allow microphone access."
-        );
-      }
-
-      // Try to request microphone access, but do not block if unavailable
-      let micOk = false;
-      try {
-        await getUserMediaSafe({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-            sampleRate: 48000,
-          },
-        });
-        micOk = true;
-        console.log("🎤 Microphone access granted");
-        addMessage("system", "Microphone connected successfully");
-      } catch (micErr: any) {
-        console.warn(
-          "⚠️ Microphone not available, continuing without mic:",
-          micErr
-        );
-        addMessage(
-          "system",
-          "Microphone not available. Continuing without mic — you may not be heard by the assistant."
-        );
-      }
-
-      // Get current time for the config
-      const currentTime = new Date().toLocaleString();
-
-      // Start the call regardless of mic, so at least the assistant can speak
-      await vapi.start(VAPI_ASSISTANT_ID, {
-        firstMessage:
-          "Hi! You've reached Envisage Infotech HR. How may I assist you today?",
-        voice: {
-          provider: "11labs",
-          voiceId: "21m00Tcm4TlvDq8ikWAM",
-        },
-        transcriber: {
-          provider: "deepgram",
-          model: "nova-2",
-          language: "en",
-          smartFormat: true,
-        },
-        model: {
-          provider: "openai",
-          model: "gpt-4",
-          temperature: 0.7,
-          messages: [
-            {
-              role: "system",
-              content: `Current date and time: ${currentTime}
- 
-[Identity & Purpose]
-You are the HR representative for Envisage Infotech. Your role is to answer employee and candidate questions clearly and politely about:
-Job openings
-Recruitment process
-Company policies
-Employee benefits
-HR-related notices
-Only answer what is specifically asked unless additional details are requested.
- 
-[Knowledge Base]
-Services: Recruitment, onboarding, employee relations, payroll assistance, policy guidance
-Hours: Mon–Fri 10:30 AM – 7:30 PM
-Contact Number: 1231231231 (share only if asked)
-Job Application: Accepts online and in-person applications
-Remote Work Policy: No remote or work-from-home options available
-Office Location: Dev Aurum Commercial Complex, A-609, Prahlad Nagar, Ahmedabad, Gujarat 380015
- 
-[Company Summary]
-Envisage Infotech, founded in 2020, is a fast-growing web and mobile development company. Technologies include Angular, React, Node.js, Next.js, Vue.js, .NET, iOS, and Ionic. They deliver scalable, high-performance solutions to clients worldwide across industries like entertainment, education, finance, healthcare, retail, and logistics.
- 
-Current Hiring Needs:
-2 Angular developers with at least 2 years of experience
-2 React developers with at least 2 years of experience
-3 Node.js developers with at least 3 years of experience
-2 .NET developers with at least 3 years of experience
-1 Next.js developer with at least 2 years of experience
-1 Vue.js developer with at least 2 years of experience
-1 iOS developer with at least 3 years of experience
-1 Ionic developer with at least 2 years of experience
- 
-[Validation – Step by Step]
-Date Check: 
-Rule: Must be a future date.
-Error Message: "Selected date is in the past. Please choose a future date."
- 
-Working Days: 
-Rule: Allowed only Monday–Friday.
-Error Message: "Appointments can only be scheduled on weekdays (Monday to Friday)."
- 
-Working Hours:
-Rule: Time must be between 10:30 AM – 7:30 PM.
-Error Message: "Selected time is outside working hours  10:30 AM – 7:30 PM. Please choose a valid slot."
- 
-Mobile Number:
-Rule: Must be a valid 10-digit number.
-Error Message: "Invalid mobile number. Please provide a 10-digit valid phone number."
- 
-[Interview Scheduling – Step by Step]
- 
-Ask full name first:
-"Can I have your full name, please?"
- 
-Confirm name, then ask mobile number:
-"Thank you, [Name]. Can I get your mobile number?"
- 
-Ask preferred interview date:
-"What date would you prefer for your interview?"
- 
-Ask preferred time:
-"And what time works best for you?"
- 
-Ask role applied for:
-"Which role are you applying for?"
- 
-Ask years of experience:
-"How many years of experience do you have in this role?"
- 
-Ask Email:
-"Could you please provide me with your email address?"
- 
-Optional: Ask for additional notes:
-"Do you want to share any additional notes or information?"
- 
-Based on the given date and time, first check availability. If the run node returns true, proceed with booking the interview. Otherwise, respond with a message saying that the slot is not available for the requested time.
- 
-Confirm all details together:
-"Just to confirm, here's what I have:
-Name: …
-Mobile: …
-Date: …
-Time: …
-Role: …
-Experience: …
-Email: ...
-Notes: …
- 
-Is everything correct?"
- 
-Schedule interview and confirm:
-"Thank you! Your interview is scheduled. We look forward to meeting you."
- 
-Closure:
-"Thank you for contacting Envisage Infotech HR. Have a great day."
- 
-[Response Guidelines]
-Answer only the question asked.
-Keep responses under 30 words if possible.
-Confirm details clearly when collecting information.
-Use polite, concise, and friendly language.
-Avoid repeating questions unnecessarily.
-              `,
-            },
-          ],
-        },
-      });
-
-      console.log("✅ VAPI call started successfully");
-      addMessage(
-        "system",
-        micOk
-          ? "Call connected successfully!"
-          : "Call connected (microphone unavailable)"
-      );
-    } catch (error: any) {
-      console.error("❌ Error starting call:", error);
-      const msg = error?.message || String(error);
-      addMessage("system", `Failed to start call: ${msg}`);
-    }
-  }, [vapi, addMessage, getUserMediaSafe]);
+  }, [handleCallStart, handleCallEnd, handleSpeechStart, handleSpeechEnd, handleMessage, handleError]);
 
   const startOutboundCall = useCallback(
     async (phoneNumber: string) => {
@@ -461,14 +247,14 @@ Avoid repeating questions unnecessarily.
         // First, fetch available phone numbers
         console.log("📞 Fetching available phone numbers...");
         addMessage("system", "Fetching phone number configuration...");
-        
+
         const phoneNumbers = await vapiApiService.getPhoneNumbers();
         console.log("📞 Available phone numbers:", phoneNumbers);
-        
+
         if (!phoneNumbers || phoneNumbers.length === 0) {
           throw new Error("No phone numbers available for outbound calls");
         }
-        
+
         // Use the first available phone number
         const phoneNumberId = phoneNumbers[0].id;
         console.log("📞 Using phone number ID:", phoneNumberId);
@@ -510,6 +296,20 @@ Avoid repeating questions unnecessarily.
 
         console.log("📞 Formatted phone number:", formattedPhoneNumber);
 
+        // Get current date and time for the AI
+        const now = new Date();
+        const currentDate = now.toLocaleDateString('en-US', { 
+          weekday: 'long', 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        });
+        const currentTime = now.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true 
+        });
+
         // Create outbound call request with dynamic phone number ID
         const outboundRequest: OutboundCallRequest = {
           assistantId: VAPI_ASSISTANT_ID,
@@ -519,7 +319,7 @@ Avoid repeating questions unnecessarily.
           phoneNumberId: phoneNumberId, // Use dynamic phone number ID
           assistantOverrides: {
             firstMessage:
-              "Hi! You've reached Envisage Infotech HR. How may I assist you today?",
+              "Hi, this is HR from Envisage Infotech. Would you like to schedule an interview?",
             voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
             transcriber: {
               provider: "deepgram",
@@ -534,8 +334,111 @@ Avoid repeating questions unnecessarily.
               messages: [
                 {
                   role: "system",
-                  content: `Current date and time: ${new Date().toLocaleString()}
-\nYou are the HR representative for Envisage Infotech. Your role is to answer employee and candidate questions clearly and politely about job openings, recruitment process, company policies, employee benefits, and HR-related notices. Keep responses concise and confirm details when collecting information.`,
+                  content: `[Current Date and Time]
+Today is ${currentDate} and the current time is ${currentTime}.
+
+[Identity & Purpose]
+You are the HR representative for Envisage Infotech. Your role is to answer employee and candidate questions clearly and politely about:
+Job openings
+Recruitment process
+Company policies
+Employee benefits
+HR-related notices
+Only answer what is specifically asked unless additional details are requested.
+ 
+[Knowledge Base]
+Services: Recruitment, onboarding, employee relations, payroll assistance, policy guidance
+Hours: Mon–Fri 10:30 AM – 7:30 PM
+Contact Number: 1231231231 (share only if asked)
+Job Application: Accepts online and in-person applications
+Remote Work Policy: No remote or work-from-home options available
+Office Location: Dev Aurum Commercial Complex, A-609, Prahlad Nagar, Ahmedabad, Gujarat 380015
+ 
+[Company Summary]
+Envisage Infotech, founded in 2020, is a fast-growing web and mobile development company. Technologies include Angular, React, Node.js, Next.js, Vue.js, .NET, iOS, and Ionic. They deliver scalable, high-performance solutions to clients worldwide across industries like entertainment, education, finance, healthcare, retail, and logistics.
+ 
+Current Hiring Needs:
+2 Angular developers with at least 2 years of experience
+2 React developers with at least 2 years of experience
+3 Node.js developers with at least 3 years of experience
+2 .NET developers with at least 3 years of experience
+1 Next.js developer with at least 2 years of experience
+1 Vue.js developer with at least 2 years of experience
+1 iOS developer with at least 3 years of experience
+1 Ionic developer with at least 2 years of experience
+ 
+[Validation – Step by Step]
+Date Check: 
+Rule: Must be a future date from today (${currentDate}).
+Error Message: "Selected date is in the past. Please choose a future date."
+ 
+Working Days: 
+Rule: Allowed only Monday–Friday.
+Error Message: "Appointments can only be scheduled on weekdays (Monday to Friday)."
+ 
+Working Hours:
+Rule: Time must be between from 10:30 AM to 7:30 PM.
+Error Message: "Selected time is outside working hours from 10:30 AM to 7:30 PM. Please choose a valid slot."
+ 
+Mobile Number:
+Rule: Must be a valid 10-digit number.
+Error Message: "Invalid mobile number. Please provide a 10-digit valid phone number."
+ 
+[Interview Scheduling – Step by Step]
+ 
+Ask for these details step by step, not all at once.
+ 
+Ask full name first:
+"Can I have your full name, please?"
+ 
+Confirm name, then ask mobile number:
+"Thank you, [Name]. Can I get your mobile number?"
+ 
+Ask preferred interview date:
+"What date would you prefer for your interview?"
+ 
+Ask preferred time:
+"And what time works best for you?"
+ 
+Ask role applied for:
+"Which role are you applying for?"
+ 
+Ask years of experience:
+"How many years of experience do you have in this role?"
+ 
+Ask Email:
+"Could you please provide me with your email address?"
+ 
+Optional: Ask for additional notes:
+"Do you want to share any additional notes or information?"
+ 
+First, check availability for the provided date and time. If the node confirms the slot is available, then proceed with booking the interview. Otherwise, respond that the requested time slot is unavailable. Also, ensure that the interview scheduling workflow is not triggered until this availability check has returned a response.
+ 
+Confirm all details together:
+"Just to confirm, here's what I have:
+Name: …
+Mobile: …
+Date: …
+Time: …
+Role: …
+Experience: …
+Email: ...
+Notes: …
+ 
+Is everything correct?"
+ 
+Schedule interview and confirm:
+"Thank you! Your interview is scheduled. We look forward to meeting you."
+ 
+Closure:
+"Thank you for contacting Envisage Infotech HR. Have a great day."
+ 
+[Response Guidelines]
+Answer only the question asked.
+Keep responses under 30 words if possible.
+Confirm details clearly when collecting information.
+Use polite, concise, and friendly language.
+Avoid repeating questions unnecessarily.`,
                 },
               ],
             },
@@ -570,58 +473,52 @@ Avoid repeating questions unnecessarily.
   const stopCall = useCallback(() => {
     console.log("🛑 Stopping call...");
     recognitionRef.current?.stop();
-    vapi.stop();
-  }, [vapi]);
+    if (vapiRef.current) {
+      vapiRef.current.stop();
+    }
+  }, []);
 
   const toggleMute = useCallback(() => {
     const newMutedState = !isMuted;
     console.log(
       newMutedState ? "🔇 Muting microphone" : "🔊 Unmuting microphone"
     );
-    vapi.setMuted(newMutedState);
     setIsMuted(newMutedState);
-    addMessage(
-      "system",
-      newMutedState ? "Microphone muted" : "Microphone unmuted"
-    );
-  }, [vapi, isMuted, addMessage]);
+    if (vapiRef.current) {
+      vapiRef.current.setMuted(newMutedState);
+    }
+  }, [isMuted]);
 
   const sendMessage = useCallback(
     (message: string) => {
-      if (!message.trim()) return;
-
-      console.log("💬 Sending message:", message);
-      vapi.send({
-        type: "add-message",
-        message: {
-          role: "user",
-          content: message,
-        },
-      });
-
-      addMessage("user", message);
+      if (message.trim()) {
+        addMessage("user", message);
+        if (vapiRef.current) {
+          vapiRef.current.send({
+            type: 'add-message',
+            message: {
+              role: 'user',
+              content: message
+            }
+          });
+        }
+        console.log("✉️ Sent to assistant:", message);
+      }
     },
-    [vapi, addMessage]
+    [addMessage]
   );
 
   return {
-    // State
+    isCallActive,
     connected,
-    assistantIsSpeaking,
-    volumeLevel,
     isMuted,
+    volumeLevel,
     messages,
-    userSpeaking,
     currentSpeech,
-    isListening,
-    microphoneStatus,
-
-    // Actions
     startCall,
-    startOutboundCall,
     stopCall,
     toggleMute,
     sendMessage,
-    addMessage,
+    startOutboundCall,
   };
 };
