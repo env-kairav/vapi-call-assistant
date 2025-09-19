@@ -119,17 +119,21 @@ Current Hiring Needs:
  
 [Validation – Step by Step]
 Date Check: 
-Rule: Must be a future date from today (${currentDate}).
+Rule: Selected date must be greater than today (${currentDate}).
 Error Message: "Selected date is in the past. Please choose a future date."
- 
+
+Weekend Check
+Rule: Selected date (${currentDate}) must not fall on Saturday or Sunday.
+Error Message: "Selected date falls on a weekend. Please choose a date between Monday and Friday."
+
 Working Days: 
 Rule: Allowed only Monday–Friday.
 Error Message: "Appointments can only be scheduled on weekdays (Monday to Friday)."
  
-Working Hours:
-Rule: Time must be between from 10:30 AM to 7:30 PM.
-Error Message: "Selected time is outside working hours from 10:30 AM to 7:30 PM. Please choose a valid slot."
- 
+Working Hours Check
+Rule: Selected time must be between 10:30 AM and 7:30 PM in Indian Standard Time (IST, UTC+5:30).
+Error Message: "Selected time is outside working hours (10:30 AM to 7:30 PM IST). Please choose a valid slot."
+
 Mobile Number:
 Rule: Must be a valid 10-digit number.
 Error Message: "Invalid mobile number. Please provide a 10-digit valid phone number."
@@ -232,7 +236,7 @@ Avoid repeating questions unnecessarily.`;
         },
         model: {
           provider: "openai",
-          model: "gpt-4",
+          model: "gpt-5-mini",
           temperature: 0.7,
           messages: [
             {
@@ -465,7 +469,7 @@ Avoid repeating questions unnecessarily.`;
             },
             model: {
               provider: "openai",
-              model: "gpt-4",
+              model: "gpt-5-mini",
               temperature: 0.7,
               messages: [
                 {
