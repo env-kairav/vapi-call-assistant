@@ -3,8 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Phone, PhoneCall, Minus, Maximize2, X } from 'lucide-react';
@@ -18,7 +16,7 @@ interface CallTypeSelectorProps {
   onCallTypeChange: (type: CallType) => void;
   phoneNumber: string;
   onPhoneNumberChange: (number: string) => void;
-  onStartCall: (firstMessage?: string) => void;
+  onStartCall: () => void;
   isCallActive: boolean;
   disabled?: boolean;
   onClose?: () => void;
@@ -43,19 +41,6 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
   const [minimized, setMinimized] = useState(true);
   const { startOutboundCall } = useVapi();
   const { toast } = useToast();
-  const [firstMessage, setFirstMessage] = useState<string>(() => {
-    try {
-      const raw = localStorage.getItem('assistantSettings');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.firstMessage === 'string' && parsed.firstMessage.trim()) {
-          return parsed.firstMessage;
-        }
-      }
-    } catch {}
-    return 'Hi, this is HR from Envisage Infotech. How can I help you today?';
-  });
-  const [isFirstMessageDialogOpen, setIsFirstMessageDialogOpen] = useState(false);
 
   const handlePhoneNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -70,7 +55,7 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
 
   const handleStart = async () => {
     if (callType === 'inbound') {
-      onStartCall(firstMessage);
+      onStartCall();
       return;
     }
 
@@ -82,7 +67,7 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
 
     const fullNumber = `${selectedCountryCode}${phoneNumber}`; // useVapi formats to E.164
     try {
-      await startOutboundCall(fullNumber, firstMessage);
+      await startOutboundCall(fullNumber);
       toast({ title: 'Call placed', description: `AI assistant is calling ${fullNumber}. Refresh the list after the call to see details.` });
       // Close popup
       onClose?.();
@@ -159,8 +144,6 @@ export const CallTypeSelector: React.FC<CallTypeSelectorProps> = ({
             <p>Select "Outbound Call" to have the assistant call a candidate.</p>
           )}
         </div>
-
-        {/* Assistant First Message removed from here; defaults are loaded from settings */}
 
         {/* Phone Number Input for Outbound Calls */}
         {callType === 'outbound' && (

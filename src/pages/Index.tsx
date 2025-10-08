@@ -133,13 +133,11 @@ const Index = () => {
   const [showRecordDetails, setShowRecordDetails] = useState(false);
   const [callType, setCallType] = useState<CallType>("inbound");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [firstMessage, setFirstMessage] = useState<string | undefined>(undefined);
   const { toast } = useToast();
   const [showStartPopup, setShowStartPopup] = useState(true);
 
-  const handleCallStart = (msg?: string) => {
+  const handleCallStart = () => {
     console.log("🚀 Starting inbound call...");
-    if (msg) setFirstMessage(msg);
     setCallStatus("connecting");
     setIsCallActive(true);
     setShowCallInterface(true);
@@ -149,9 +147,8 @@ const Index = () => {
     }, 2000);
   };
 
-  const handleOutboundCallStart = (msg?: string) => {
+  const handleOutboundCallStart = () => {
     console.log("🚀 Starting outbound call to:", phoneNumber);
-    if (msg) setFirstMessage(msg);
     setCallStatus("connecting");
     setIsCallActive(true);
     setShowCallInterface(true);
@@ -210,6 +207,7 @@ const Index = () => {
       <Header />
       
       <main className="container mx-auto px-6 py-8">
+        {/* Call Records Section */}
         <div className="bg-card rounded-xl p-6 shadow-card">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-semibold text-foreground">
@@ -223,7 +221,7 @@ const Index = () => {
               {loading ? 'Loading…' : 'Refresh'}
             </button>
           </div>
-
+          
           {error && (
             <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
               <div className="flex items-start gap-3">
@@ -242,7 +240,7 @@ const Index = () => {
               </div>
             </div>
           )}
-
+          
           {loading && callRecords.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
@@ -318,7 +316,6 @@ const Index = () => {
               callStatus={callStatus}
               callType={callType}
               phoneNumber={phoneNumber}
-              firstMessage={firstMessage}
               onCallStart={callType === "inbound" ? handleCallStart : handleOutboundCallStart}
               onCallEnd={handleCallEnd}
             />
