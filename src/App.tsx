@@ -8,7 +8,6 @@ import NotFound from "./pages/NotFound";
 import Calendar from "./pages/Calendar";
 import PhoneNumbers from "./pages/PhoneNumbers";
 import CreatePhoneNumber from "./pages/CreatePhoneNumber";
-import Assistant from "./pages/Assistant";
 
 const queryClient = new QueryClient();
 
@@ -23,7 +22,6 @@ const App = () => (
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/phone-numbers" element={<PhoneNumbers />} />
           <Route path="/phone-numbers/new" element={<CreatePhoneNumber />} />
-          <Route path="/assistant" element={<Assistant />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

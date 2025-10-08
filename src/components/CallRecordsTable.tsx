@@ -5,6 +5,29 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { CallRecord } from "@/pages/Index";
 
+const mockCallRecords: CallRecord[] = [
+  {
+    id: "1",
+    callStatus: "completed",
+    startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    endedAt: new Date(Date.now() - 9 * 60 * 1000).toISOString(),
+    summary: "Greeting; call ended quickly.",
+    endedReason: "customer-ended-call",
+  },
+  {
+    id: "2",
+    callStatus: "pending",
+    startedAt: new Date().toISOString(),
+    summary: "In progress",
+  },
+  {
+    id: "3",
+    callStatus: "failed",
+    startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    summary: "No answer",
+    endedReason: "no-answer",
+  },
+];
 
 const getStatusBadge = (status: CallRecord["callStatus"]) => {
   switch (status) {
@@ -41,12 +64,11 @@ export const CallRecordsTable = ({ records, onViewRecord }: CallRecordsTableProp
   const recordsPerPage = 10;
 
   // Use provided records or show mock data as fallback
-  const allRecords = records.length > 0 ? records : [];
+  const allRecords = records.length > 0 ? records : mockCallRecords;
   const filteredRecords = allRecords.filter(record => {
     const term = searchTerm.toLowerCase();
     const matchesSearch =
       record.id.toLowerCase().includes(term) ||
-      (record.phoneNumber || '').toLowerCase().includes(term) ||
       (record.summary || '').toLowerCase().includes(term) ||
       (record.endedReason || '').toLowerCase().includes(term) ||
       (record.transcriptSnippet || '').toLowerCase().includes(term);
@@ -89,10 +111,7 @@ export const CallRecordsTable = ({ records, onViewRecord }: CallRecordsTableProp
             <Filter className="w-4 h-4 text-muted-foreground" />
             <select
               value={statusFilter}
-              onChange={(e) => {
-                const value = (e.target.value || '') as '' | CallRecord["callStatus"];
-                setStatusFilter(value);
-              }}
+              onChange={(e) => setStatusFilter((e.target.value || '') as any)}
               className="w-full sm:w-40 bg-muted/50 border border-border rounded-md px-3 py-2 text-sm text-foreground"
             >
               <option value="">All statuses</option>
@@ -172,7 +191,6 @@ export const CallRecordsTable = ({ records, onViewRecord }: CallRecordsTableProp
           <thead>
             <tr className="border-b border-border">
               <th className="text-left py-3 px-2 sm:px-4 font-medium text-muted-foreground">Date</th>
-              <th className="text-left py-3 px-2 sm:px-4 font-medium text-muted-foreground">Phone</th>
               <th className="text-left py-3 px-2 sm:px-4 font-medium text-muted-foreground">Status</th>
               <th className="text-left py-3 px-2 sm:px-4 font-medium text-muted-foreground">Summary</th>
               <th className="text-left py-3 px-2 sm:px-4 font-medium text-muted-foreground">Actions</th>
@@ -182,9 +200,6 @@ export const CallRecordsTable = ({ records, onViewRecord }: CallRecordsTableProp
             {displayedRecords.map((record) => (
               <tr key={record.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                 <td className="py-3 px-2 sm:px-4 text-foreground whitespace-nowrap">{formatDate(record.startedAt)}</td>
-                <td className="py-3 px-2 sm:px-4 text-foreground whitespace-nowrap" title={record.phoneNumber || '-'}>
-                  {record.phoneNumber || '-'}
-                </td>
                 <td className="py-3 px-2 sm:px-4">{getStatusBadge(record.callStatus)}</td>
                 <td className="py-3 px-2 sm:px-4 text-foreground max-w-[520px] truncate" title={record.summary || record.transcriptSnippet}>{record.summary || record.transcriptSnippet || '-'}</td>
                 <td className="py-3 px-2 sm:px-4">
