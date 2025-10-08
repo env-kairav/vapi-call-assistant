@@ -27,7 +27,6 @@ export const Header = () => {
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 text-sm">
             <a href="/" className="text-muted-foreground hover:text-foreground">Dashboard</a>
             <a href="/calendar" className="text-muted-foreground hover:text-foreground">Calendar</a>
-            <a href="/phone-numbers" className="text-muted-foreground hover:text-foreground">Phone Numbers</a>
           </div>
         </nav>
       </div>
