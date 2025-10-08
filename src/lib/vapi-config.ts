@@ -1,9 +1,9 @@
 // Vapi configuration
-export const VAPI_PUBLIC_KEY = "2d3d2169-6263-4e43-85ec-c58af328590e";
+export const VAPI_PUBLIC_KEY = "28b1d020-769e-41f6-88d3-3fcb5be1ed03";
 // NOTE: You need to replace this with your actual Vapi PRIVATE key for API calls
 // The public key above is only for client-side Web SDK calls
-export const VAPI_API_KEY = "75a3adf4-7e9d-47aa-892a-20fa23dae5e5"; // Replace with your actual private key
-export const VAPI_ASSISTANT_ID = "2e724a2f-84d8-4042-a5be-7ec705403e67";
+export const VAPI_API_KEY = "3743a4c1-5ca8-4b65-804e-60f9a894a1e0"; // Replace with your actual private key
+export const VAPI_ASSISTANT_ID = "67e7549f-9606-470f-bd5c-70e377c8932a";
 
 // Vapi API endpoints
 export const VAPI_API_BASE_URL = "https://api.vapi.ai";
@@ -27,6 +27,6 @@ export const getVapiConfig = (currentTime: string) => ({
   // endCallOnSilence: false, // This was causing issues
   interruptible: true, // Allow interrupting the assistant
   firstMessage:
-    "Yoo you reached here congs brotherss You've reached Envisage Infotech HR. How may I assist you today?",
+    "Hi! You've reached Envisage Infotech HR. How may I assist you today?",
   // Remove endCallMessage to prevent immediate ending
 });
