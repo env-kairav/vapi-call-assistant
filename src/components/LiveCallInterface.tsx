@@ -10,15 +10,25 @@ interface LiveCallInterfaceProps {
   callStatus: "idle" | "connecting" | "active" | "ended";
   callType: CallType;
   phoneNumber?: string;
+  firstMessage?: string;
   onCallStart: () => void;
   onCallEnd: () => void;
-  onCallSummary?: (summary: any) => void;
+  onCallSummary?: (summary: CandidateSummary) => void;
+}
+
+interface CandidateSummary {
+  candidateName: string;
+  phoneNumber: string;
+  position: string;
+  experience: string;
+  interviewDate: string;
 }
 
 export const LiveCallInterface = ({ 
   isCallActive, 
   callStatus, 
   callType,
+  firstMessage,
   phoneNumber,
   onCallStart, 
   onCallEnd,
@@ -33,14 +43,10 @@ export const LiveCallInterface = ({
   // Use Vapi hook
   const {
     connected,
-    assistantIsSpeaking,
     volumeLevel,
     isMuted: vapiMuted,
     messages,
-    userSpeaking,
     currentSpeech,
-    isListening,
-    microphoneStatus,
     startCall: vapiStartCall,
     startOutboundCall: vapiStartOutboundCall,
     stopCall: vapiStopCall,
@@ -101,7 +107,7 @@ export const LiveCallInterface = ({
     }
   }, [connected, isCallActive, messages, onCallSummary]);
 
-  const extractCandidateInfo = (messages: any[]) => {
+  const extractCandidateInfo = (messages: { type: string; content: string }[]) => {
     const userMessages = messages.filter(msg => msg.type === 'user');
     const roleMatch = userMessages.find(msg => 
       msg.content.toLowerCase().includes('developer') ||
@@ -220,8 +226,7 @@ export const LiveCallInterface = ({
             <p>Assistant is listening and ready to help with the interview</p>
           )}
           <p className="text-xs">AI will automatically capture candidate details</p>
-          {assistantIsSpeaking && <p className="text-xs text-blue-500">Assistant is speaking…</p>}
-          {userSpeaking && <p className="text-xs text-green-500">User is speaking…</p>}
+          {/* Live speaking indicators removed to match hook API */}
           {currentSpeech && <p className="text-xs text-gray-600">"{currentSpeech}"</p>}
         </div>
       )}
@@ -232,9 +237,9 @@ export const LiveCallInterface = ({
           <Button
             onClick={() => {
               if (callType === "inbound") {
-                vapiStartCall();
+                vapiStartCall(firstMessage);
               } else if (callType === "outbound" && phoneNumber) {
-                vapiStartOutboundCall(phoneNumber);
+                vapiStartOutboundCall(phoneNumber, firstMessage);
               }
             }}
             className="bg-gradient-primary hover:shadow-intense px-8 py-3 text-base font-medium transition-all duration-300"
@@ -291,7 +296,7 @@ export const LiveCallInterface = ({
               }`}>
                 <div className="font-medium">{msg.type === 'user' ? 'You' : 'Assistant'}</div>
                 <div>{msg.content}</div>
-                <div className="text-xs opacity-70">{msg.time}</div>
+                <div className="text-xs opacity-70">{new Date(msg.timestamp).toLocaleTimeString()}</div>
               </div>
             ))}
             <div ref={messagesEndRef} />
