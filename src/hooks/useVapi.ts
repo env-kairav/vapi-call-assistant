@@ -3,6 +3,7 @@ import Vapi from "@vapi-ai/web";
 import { setupSpeechRecognition } from "@/lib/speech-recognition";
 import { vapiApiService, OutboundCallRequest } from "@/lib/vapi-api";
 import { VAPI_ASSISTANT_ID, VAPI_PUBLIC_KEY } from "@/lib/vapi-config";
+import { getAssistantFirstMessage } from "@/lib/vapi-tools";
 
 export type CallType = "inbound" | "outbound";
 
@@ -19,11 +20,11 @@ export interface UseVapiReturn {
   volumeLevel: number;
   messages: Message[];
   currentSpeech: string;
-  startCall: () => Promise<void>;
+  startCall: (firstMessage?: string) => Promise<void>;
   stopCall: () => void;
   toggleMute: () => void;
   sendMessage: (message: string) => void;
-  startOutboundCall: (phoneNumber: string) => Promise<void>;
+  startOutboundCall: (phoneNumber: string, firstMessage?: string) => Promise<void>;
 }
 
 export const useVapi = (): UseVapiReturn => {
@@ -33,7 +34,7 @@ export const useVapi = (): UseVapiReturn => {
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentSpeech, setCurrentSpeech] = useState("");
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<ReturnType<typeof setupSpeechRecognition> | null>(null);
   const callStartedRef = useRef(false);
   const vapiRef = useRef<Vapi | null>(null);
 
@@ -46,6 +47,14 @@ export const useVapi = (): UseVapiReturn => {
     setMessages((prev) => [...prev, message]);
   }, []);
 
+  type LegacyNavigator = Navigator & {
+    getUserMedia?: (
+      constraints: MediaStreamConstraints,
+      success: (stream: MediaStream) => void,
+      error: (err: unknown) => void,
+    ) => void;
+  };
+
   const getUserMediaSafe = useCallback(async () => {
     try {
       // Try modern API first
@@ -53,9 +62,9 @@ export const useVapi = (): UseVapiReturn => {
         return await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       // Fallback for older browsers
-      if ((navigator as any).getUserMedia) {
+      if ((navigator as LegacyNavigator).getUserMedia) {
         return new Promise((resolve, reject) => {
-          (navigator as any).getUserMedia(
+          (navigator as LegacyNavigator).getUserMedia!(
             { audio: true },
             resolve,
             reject
@@ -63,29 +72,31 @@ export const useVapi = (): UseVapiReturn => {
         });
       }
       throw new Error("getUserMedia not supported");
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("❌ Microphone access failed:", error);
       throw new Error("Microphone API not available");
     }
   }, []);
 
   const getSystemPrompt = useCallback(() => {
-    // Get current date and time for the AI
+    // Get current date and time for the AI in India timezone (IST)
     const now = new Date();
     const currentDate = now.toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
-      day: 'numeric' 
+      day: 'numeric',
+      timeZone: 'Asia/Kolkata'
     });
     const currentTime = now.toLocaleTimeString('en-US', { 
       hour: '2-digit', 
       minute: '2-digit',
-      hour12: true 
+      hour12: true,
+      timeZone: 'Asia/Kolkata'
     });
 
-    return `[Current Date and Time]
-Today is ${currentDate} and the current time is ${currentTime}.
+    return `[Current Date and Time - India Standard Time (IST)]
+Today is ${currentDate} and the current time is ${currentTime} IST (UTC+5:30).
 
 [Identity & Purpose]
 You are the HR representative for Envisage Infotech. Your role is to answer employee and candidate questions clearly and politely about:
@@ -125,18 +136,29 @@ Error Message: "Selected date is in the past. Please choose a future date."
 Weekend Check
 Rule: Selected date (${currentDate}) must not fall on Saturday or Sunday.
 Error Message: "Selected date falls on a weekend. Please choose a date between Monday and Friday."
+Guidance: If the user picked a weekend, suggest the closest Monday at the same time (if time is known), or ask for a weekday.
 
 Working Days: 
 Rule: Allowed only Monday–Friday.
 Error Message: "Appointments can only be scheduled on weekdays (Monday to Friday)."
  
 Working Hours Check
-Rule: Selected time must be between 10:30 AM and 7:30 PM in Indian Standard Time (IST, UTC+5:30).
+Rule: Selected time must be between 10:30 AM and 7:30 PM in Indian Standard Time (IST, UTC+5:30). Always use 12-hour format with explicit AM/PM (e.g., 03:15 PM). If the user already included AM or PM, do not ask for it again.
 Error Message: "Selected time is outside working hours (10:30 AM to 7:30 PM IST). Please choose a valid slot."
 
+Relative & Natural Dates:
+Rules:
+- Accept phrases like "next Monday", "this Friday", or "tomorrow". Resolve them to actual dates in IST.
+- Confirm the resolved date succinctly (e.g., "Next Monday is Oct 27, 2025.").
+- Only say "in the past" after resolving and verifying in IST.
+
 Mobile Number:
-Rule: Must be a valid 10-digit number.
-Error Message: "Invalid mobile number. Please provide a 10-digit valid phone number."
+Rules:
+- Accept E.164 formatted +91XXXXXXXXXX (India) or +1XXXXXXXXXX (US/Canada).
+- Accept 10-digit numbers. If the first digit is 6–9, infer India and normalize to +91. Otherwise infer US/Canada and normalize to +1.
+- Once a valid number is provided, acknowledge it and proceed. Do not re-ask or incorrectly reject a valid number.
+ - Keep acknowledgments concise. Do not repeat or read back the number digits. Do not mention normalization or formatting.
+Error Message: "Invalid mobile number. Please provide a valid number (10 digits or +91/+1 format)."
  
 [Interview Scheduling – Step by Step]
  
@@ -148,11 +170,14 @@ Ask full name first:
 Confirm name, then ask mobile number:
 "Thank you, [Name]. Can I get your mobile number?"
  
-Ask preferred interview date:
-"What date would you prefer for your interview?"
- 
-Ask preferred time:
-"And what time works best for you?"
+Ask preferred interview date and time together:
+"What date and time would you prefer for your interview? Please use 12-hour time with AM/PM (e.g., Sep 28 at 03:15 PM). All times are in India Standard Time (IST)."
+
+If only date is given:
+"What time works for you on [Resolved Date]? Please use 12-hour time with AM/PM. All times are in India Standard Time (IST)."
+
+If only time is given (without AM/PM):
+"Please confirm AM or PM for [time]. All times are in India Standard Time (IST)."
  
 Ask role applied for:
 "Which role are you applying for?"
@@ -192,10 +217,20 @@ Answer only the question asked.
 Keep responses under 30 words if possible.
 Confirm details clearly when collecting information.
 Use polite, concise, and friendly language.
-Avoid repeating questions unnecessarily.`;
+Avoid repeating questions unnecessarily.
+Avoid meta comments like "Normalized …". Keep confirmations brief (e.g., "Got it.") and proceed.
+Avoid restarting the flow. If the user changes a previous detail (date/time/phone), update that field and continue.
+Normalize spoken email inputs (e.g., replace " at " with "@" and " dot " with ".").
+
+[Timezone Instructions]
+- All times are in India Standard Time (IST, UTC+5:30)
+- NEVER ask about timezone - it is always IST
+- When users provide times, assume they are in IST
+- Do not ask "What timezone?" or "Which timezone?"
+- Always work with IST as the default timezone`;
   }, []);
 
-  const startCall = useCallback(async () => {
+  const startCall = useCallback(async (firstMessageOverride?: string) => {
     try {
       console.log("🚀 Starting call initialization...");
       addMessage("system", "Initializing call...");
@@ -222,8 +257,11 @@ Avoid repeating questions unnecessarily.`;
       console.log("🎯 Starting inbound call with custom configuration...");
       
       // Start the call with configuration passed directly to vapi.start()
+      // Load first message from settings unless explicitly overridden
+      const configuredFirstMessage = getAssistantFirstMessage();
+
       await vapiRef.current.start(VAPI_ASSISTANT_ID, {
-        firstMessage: "Hi, this is HR from Envisage Infotech. How can I help you today?",
+        firstMessage: firstMessageOverride || configuredFirstMessage,
         voice: {
           provider: "11labs",
           voiceId: "21m00Tcm4TlvDq8ikWAM"
@@ -250,9 +288,10 @@ Avoid repeating questions unnecessarily.`;
       console.log("✅ Inbound call started with custom configuration");
       addMessage("system", "Inbound call started successfully!");
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("❌ Error starting call:", error);
-      addMessage("system", `Error starting call: ${error.message || error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      addMessage("system", `Error starting call: ${message}`);
     }
   }, [addMessage, getUserMediaSafe, getSystemPrompt]);
 
@@ -329,18 +368,37 @@ Avoid repeating questions unnecessarily.`;
     setVolumeLevel(volume);
   };
 
-  const handleMessage = (message: any) => {
-    console.log("📨 Message received:", message);
+  const handleMessage = useCallback((incoming: unknown) => {
+    console.log("📨 Message received:", incoming);
+    if (!incoming || typeof incoming !== 'object' || !('type' in incoming)) return;
+    const message = incoming as {
+      type: string;
+      role?: string;
+      transcript?: string;
+      transcriptType?: string;
+      status?: string;
+      error?: { message?: string };
+    };
 
     if (message.type === "transcript") {
       if (message.role === "user") {
         console.log("🎤 User:", message.transcript);
-        if (message.transcriptType === "final") {
+        if (message.transcriptType === "final" && message.transcript) {
+          setCurrentSpeech("");
           addMessage("user", message.transcript);
+          if (vapiRef.current) {
+            vapiRef.current.send({
+              type: 'add-message',
+              message: { role: 'user', content: message.transcript },
+            });
+          }
+          console.log("✉️ Sent to assistant:", message.transcript);
+        } else if (message.transcript) {
+          setCurrentSpeech(message.transcript);
         }
       } else if (message.role === "assistant") {
         console.log("🤖 Assistant:", message.transcript);
-        if (message.transcriptType === "final") {
+        if (message.transcriptType === "final" && message.transcript) {
           addMessage("assistant", message.transcript);
         }
       }
@@ -348,22 +406,19 @@ Avoid repeating questions unnecessarily.`;
       if (message.status === "in-progress") {
         // no-op; handled by call-start
       } else if (message.status === "ended") {
-        // ensure we reflect end
         handleCallEnd();
       }
     } else if (message.type === "error") {
       console.error("❌ Error:", message);
-      addMessage(
-        "system",
-        `Error: ${message.error?.message || "Unknown error"}`
-      );
+      addMessage("system", `Error: ${message.error?.message || "Unknown error"}`);
     }
-  };
+  }, [addMessage, handleCallEnd]);
 
-  const handleError = (error: any) => {
+  const handleError = useCallback((error: unknown) => {
     console.error("❌ Vapi error:", error);
-    addMessage("system", `Vapi Error: ${error.message || "Unknown error"}`);
-  };
+    const message = error instanceof Error ? error.message : "Unknown error";
+    addMessage("system", `Vapi Error: ${message}`);
+  }, [addMessage]);
 
   // Initialize VAPI instance and add event listeners
   useEffect(() => {
@@ -393,7 +448,7 @@ Avoid repeating questions unnecessarily.`;
   }, [handleCallStart, handleCallEnd, handleSpeechStart, handleSpeechEnd, handleMessage, handleError]);
 
   const startOutboundCall = useCallback(
-    async (phoneNumber: string) => {
+    async (phoneNumber: string, firstMessageOverride?: string) => {
       try {
         console.log("🚀 Starting outbound call to:", phoneNumber);
         addMessage("system", `Initiating outbound call to ${phoneNumber}...`);
@@ -451,6 +506,9 @@ Avoid repeating questions unnecessarily.`;
         console.log("📞 Formatted phone number:", formattedPhoneNumber);
 
         // Create outbound call request with dynamic phone number ID
+        // Load first message from settings unless explicitly overridden
+        const configuredFirstMessage = getAssistantFirstMessage();
+
         const outboundRequest: OutboundCallRequest = {
           assistantId: VAPI_ASSISTANT_ID,
           customer: {
@@ -458,8 +516,7 @@ Avoid repeating questions unnecessarily.`;
           },
           phoneNumberId: phoneNumberId, // Use dynamic phone number ID
           assistantOverrides: {
-            firstMessage:
-              "Hi, this is HR from Envisage Infotech. Would you like to schedule an interview?",
+            firstMessage: firstMessageOverride || configuredFirstMessage,
             voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
             transcriber: {
               provider: "deepgram",
@@ -497,12 +554,10 @@ Avoid repeating questions unnecessarily.`;
         // Set connected state (the call will be handled by VAPI)
         setConnected(true);
         addMessage("system", "Outbound call connected successfully!");
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("❌ Error starting outbound call:", error);
-        addMessage(
-          "system",
-          `Failed to start outbound call: ${error.message || error}`
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        addMessage("system", `Failed to start outbound call: ${message}`);
       }
     },
     [addMessage, getSystemPrompt]

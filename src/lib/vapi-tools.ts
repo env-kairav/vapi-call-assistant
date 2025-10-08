@@ -4,7 +4,38 @@
 // Example (self-hosted): https://your-n8n-domain.com/webhook
 // Example (n8n Cloud): https://<your-subdomain>.n8n.cloud/webhook
 export const N8N_WEBHOOK_BASE_URL =
-  "https://envsarvaiyasunil.app.n8n.cloud/webhook";
+  "https://sunil3.app.n8n.cloud/webhook";
+
+// Runtime getter that prefers user-configured settings from localStorage
+export const getN8nBaseUrl = (): string => {
+  try {
+    const raw = localStorage.getItem('assistantSettings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.n8nBaseUrl === 'string' && parsed.n8nBaseUrl.trim()) {
+        return parsed.n8nBaseUrl;
+      }
+    }
+  } catch (e) {
+    // ignore and fallback
+  }
+  return N8N_WEBHOOK_BASE_URL;
+};
+
+export const getAssistantFirstMessage = (): string => {
+  try {
+    const raw = localStorage.getItem('assistantSettings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.firstMessage === 'string' && parsed.firstMessage.trim()) {
+        return parsed.firstMessage;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "Hi, this is HR from Envisage Infotech. How can I help you today?";
+};
 
 // Webhook paths from the provided n8n flow
 // const CALENDAR_AVAILABILITY_PATH = "982fc29b-e89a-484d-b9e8-fa69ef336dc4";

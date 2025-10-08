@@ -21,6 +21,9 @@ export interface VapiCallLog {
   webCallUrl?: string;
   status: "queued" | "ringing" | "in-progress" | "forwarding" | "ended";
   endedReason?: string;
+  customer?: {
+    number?: string;
+  };
   messages?: Array<{
     role: "user" | "assistant" | "system" | string;
     time: number;
@@ -494,7 +497,7 @@ class VapiApiService {
     return {
       id: vapiLog.id,
       type: callType,
-      phoneNumber: "Unknown", // VAPI doesn't provide phone number in logs
+      phoneNumber: vapiLog.customer?.number || "Unknown",
       duration: this.calculateDuration(vapiLog.startedAt, vapiLog.endedAt),
       callStatus: mapStatus(vapiLog.status), // Fixed: use callStatus instead of status
       startedAt: vapiLog.startedAt,
