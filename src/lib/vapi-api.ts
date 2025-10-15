@@ -1,5 +1,9 @@
 import { VAPI_API_KEY, VAPI_API_BASE_URL } from "./vapi-config";
 
+interface ApiError extends Error {
+  status?: number;
+}
+
 // Types for Vapi API responses (updated based on actual API response)
 export interface VapiCallLog {
   id: string;
@@ -17,6 +21,9 @@ export interface VapiCallLog {
   webCallUrl?: string;
   status: "queued" | "ringing" | "in-progress" | "forwarding" | "ended";
   endedReason?: string;
+  customer?: {
+    number?: string;
+  };
   messages?: Array<{
     role: "user" | "assistant" | "system" | string;
     time: number;
@@ -36,10 +43,10 @@ export interface VapiCallLog {
     llmPromptTokens: number;
     llmCompletionTokens: number;
     ttsCharacters: number;
-    analysisCostBreakdown?: Record<string, any>;
+    analysisCostBreakdown?: Record<string, unknown>;
   };
-  assistantOverrides?: Record<string, any>;
-  analysis?: Record<string, any>;
+  assistantOverrides?: Record<string, unknown>;
+  analysis?: Record<string, unknown>;
   artifact?: {
     recordingUrl?: string;
     stereoRecordingUrl?: string;
@@ -67,9 +74,7 @@ export interface VapiCallLogsResponse {
   hasMore: boolean;
 }
 
-export interface VapiCallDetails extends VapiCallLog {
-  // Additional fields for detailed call information
-}
+export type VapiCallDetails = VapiCallLog;
 
 export interface OutboundCallCustomer {
   number: string;
@@ -116,21 +121,66 @@ export interface VapiPhoneNumber {
   id: string;
   number: string;
   provider: string;
-  country: string;
-  city: string;
-  cost: number;
+  name?: string;
+  status?: string;
+  createdAt?: string;
+  country?: string;
+  city?: string;
+  cost?: number;
 }
 
 export interface VapiPhoneNumbersResponse {
   data: VapiPhoneNumber[];
 }
 
+// Assistant details – keep type flexible to avoid breaking on API changes
+export type VapiAssistant = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  voice?: Record<string, unknown>;
+  transcriber?: Record<string, unknown>;
+  model?: Record<string, unknown>;
+  firstMessage?: string;
+};
+
+// Create Phone Number payloads (subset focused on common fields per provider)
+export type CreatePhoneNumberRequest =
+  | {
+      provider: "twilio";
+      name?: string;
+      number: string; // E164
+      accountSid: string;
+      authToken: string;
+      smsEnabled?: boolean;
+      description?: string;
+    }
+  | {
+      provider: "vapi" | "byo-phone-number" | "telnyx" | "vonage";
+      name?: string;
+      number?: string;
+      credentialId?: string;
+      description?: string;
+    };
+
+export type CreatePhoneNumberResponse = unknown; // Diverse per provider – keep flexible
+
+// Exact payload for Twilio import endpoint
+export interface ImportTwilioPhoneNumberRequest {
+  name: string;
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  twilioPhoneNumber: string; // E164
+}
+export type ImportTwilioPhoneNumberResponse = unknown;
+
 export interface CallRecord {
   id: string;
   type: "inbound" | "outbound";
   phoneNumber: string;
   duration: string;
-  status: string;
+  callStatus: "completed" | "pending" | "failed";
   startedAt: string;
   endedAt?: string;
   cost?: number;
@@ -187,8 +237,21 @@ class VapiApiService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ API Error: ${response.status} - ${errorText}`);
-        throw new Error(`API request failed: ${response.status} - ${errorText}`);
+        let message = `Request failed with status ${response.status}`;
+        try {
+          const json = JSON.parse(errorText || "{}");
+          if (json && typeof json === "object") {
+            message = json.message || json.error || message;
+          }
+        } catch (_) {
+          if (errorText && errorText.trim()) {
+            message = errorText;
+          }
+        }
+        console.error(`❌ API Error: ${response.status} - ${message}`);
+        const err = new Error(message) as ApiError;
+        err.status = response.status;
+        throw err;
       }
 
       const responseText = await response.text();
@@ -270,6 +333,14 @@ class VapiApiService {
     });
   }
 
+  // Get assistant details by id
+  async getAssistant(assistantId: string): Promise<VapiAssistant> {
+    console.log(`🔄 Fetching assistant details for: ${assistantId}`);
+    return await this.makeRequest<VapiAssistant>(`/assistant/${assistantId}`, {
+      method: "GET",
+    });
+  }
+
   // Create outbound call
   async createOutboundCall(
     request: OutboundCallRequest
@@ -299,6 +370,48 @@ class VapiApiService {
       }
     );
     console.log("✅ Web call created:", response);
+    return response;
+  }
+
+  // Create phone number
+  async createPhoneNumber(
+    request: CreatePhoneNumberRequest
+  ): Promise<CreatePhoneNumberResponse> {
+    console.log("🔄 Creating phone number with provider:", request.provider);
+    const response = await this.makeRequest<CreatePhoneNumberResponse>(
+      "/phone-number",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+    console.log("✅ Phone number created:", response);
+    return response;
+  }
+
+  // Import Twilio phone number (exact endpoint/payload)
+  async importTwilioPhoneNumber(
+    request: ImportTwilioPhoneNumberRequest
+  ): Promise<ImportTwilioPhoneNumberResponse> {
+    console.log("🔄 Importing Twilio phone number:", request.twilioPhoneNumber);
+    const response = await this.makeRequest<ImportTwilioPhoneNumberResponse>(
+      "/phone-number/import/twilio",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+    console.log("✅ Twilio phone number imported:", response);
+    return response;
+  }
+
+  // Delete phone number by id
+  async deletePhoneNumber(id: string): Promise<unknown> {
+    console.log("🗑️ Deleting phone number:", id);
+    const response = await this.makeRequest<unknown>(`/phone-number/${id}`, {
+      method: "DELETE",
+    });
+    console.log("✅ Phone number deleted:", response);
     return response;
   }
 
@@ -386,12 +499,27 @@ class VapiApiService {
     // Determine call type based on the log
     const callType: "inbound" | "outbound" = vapiLog.type === "inbound" ? "inbound" : "outbound";
 
+    // Map VAPI status to CallRecord callStatus
+    const mapStatus = (status: string): "completed" | "pending" | "failed" => {
+      switch (status) {
+        case "ended":
+          return "completed";
+        case "in-progress":
+        case "ringing":
+        case "queued":
+        case "forwarding":
+          return "pending";
+        default:
+          return "failed";
+      }
+    };
+
     return {
       id: vapiLog.id,
       type: callType,
-      phoneNumber: "Unknown", // VAPI doesn't provide phone number in logs
+      phoneNumber: vapiLog.customer?.number || "Unknown",
       duration: this.calculateDuration(vapiLog.startedAt, vapiLog.endedAt),
-      status: vapiLog.status,
+      callStatus: mapStatus(vapiLog.status), // Fixed: use callStatus instead of status
       startedAt: vapiLog.startedAt,
       endedAt: vapiLog.endedAt,
       cost: vapiLog.cost,

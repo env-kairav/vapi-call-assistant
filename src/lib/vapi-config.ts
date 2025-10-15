@@ -1,9 +1,9 @@
 // Vapi configuration
-export const VAPI_PUBLIC_KEY = "28b1d020-769e-41f6-88d3-3fcb5be1ed03";
+export const VAPI_PUBLIC_KEY = "9b36d5f1-454a-4c8c-a7da-009b6dc0492c";
 // NOTE: You need to replace this with your actual Vapi PRIVATE key for API calls
 // The public key above is only for client-side Web SDK calls
-export const VAPI_API_KEY = "3743a4c1-5ca8-4b65-804e-60f9a894a1e0"; // Replace with your actual private key
-export const VAPI_ASSISTANT_ID = "67e7549f-9606-470f-bd5c-70e377c8932a";
+export const VAPI_API_KEY = "5a9b8d30-0daf-40c7-96fb-7e38953d3a6b"; // Replace with your actual private key
+export const VAPI_ASSISTANT_ID = "bdd33dbe-423c-40a6-afe4-27030e84514e";
 
 // Vapi API endpoints
 export const VAPI_API_BASE_URL = "https://api.vapi.ai";

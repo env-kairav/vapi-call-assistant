@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 export const Header = () => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -23,10 +24,12 @@ export const Header = () => {
             Menu
           </button>
         </div>
-        <nav className={`${menuOpen ? 'block' : 'hidden'} sm:block w-full sm:w-auto border-t sm:border-0 border-border pt-2 sm:pt-0`}> 
+        <nav className={`${menuOpen ? 'block' : 'hidden'} sm:block w-full sm:w-auto border-t sm:border-0 border-border pt-2 sm:pt-0`}>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 text-sm">
-            <a href="/" className="text-muted-foreground hover:text-foreground">Dashboard</a>
-            <a href="/calendar" className="text-muted-foreground hover:text-foreground">Calendar</a>
+            <Link to="/" className="text-muted-foreground hover:text-foreground">Dashboard</Link>
+            <Link to="/calendar" className="text-muted-foreground hover:text-foreground">Calendar</Link>
+            <Link to="/phone-numbers" className="text-muted-foreground hover:text-foreground">Phone Numbers</Link>
+            <Link to="/assistant" className="text-muted-foreground hover:text-foreground">Assistant</Link>
           </div>
         </nav>
       </div>
