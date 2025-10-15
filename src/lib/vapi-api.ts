@@ -133,6 +133,18 @@ export interface VapiPhoneNumbersResponse {
   data: VapiPhoneNumber[];
 }
 
+// Assistant details – keep type flexible to avoid breaking on API changes
+export type VapiAssistant = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  voice?: Record<string, unknown>;
+  transcriber?: Record<string, unknown>;
+  model?: Record<string, unknown>;
+  firstMessage?: string;
+};
+
 // Create Phone Number payloads (subset focused on common fields per provider)
 export type CreatePhoneNumberRequest =
   | {
@@ -317,6 +329,14 @@ class VapiApiService {
   async getCallDetails(callId: string): Promise<VapiCallDetails> {
     console.log(`🔄 Fetching call details for: ${callId}`);
     return await this.makeRequest<VapiCallDetails>(`/call/${callId}`, {
+      method: "GET",
+    });
+  }
+
+  // Get assistant details by id
+  async getAssistant(assistantId: string): Promise<VapiAssistant> {
+    console.log(`🔄 Fetching assistant details for: ${assistantId}`);
+    return await this.makeRequest<VapiAssistant>(`/assistant/${assistantId}`, {
       method: "GET",
     });
   }
