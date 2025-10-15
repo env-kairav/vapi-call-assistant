@@ -27,6 +27,6 @@ export const getVapiConfig = (currentTime: string) => ({
   // endCallOnSilence: false, // This was causing issues
   interruptible: true, // Allow interrupting the assistant
   firstMessage:
-    "Yoo you reached here congs brotherss You've reached Envisage Infotech HR. How may I assist you today?",
+    "Hi! You've reached Envisage Infotech HR. How may I assist you today?",
   // Remove endCallMessage to prevent immediate ending
 });
